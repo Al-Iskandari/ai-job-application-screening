@@ -6,6 +6,7 @@
 import { Worker, Queue } from 'bullmq';
 import { connectionObj } from './services/queue';
 import { evaluateDocuments } from './services/evaluator';
+import { updateEvaluationStatus } from './services/firebase';
 import { config } from './config';
 
 // set up scheduler (required for repeatable jobs / delayed)
@@ -16,15 +17,31 @@ const worker = new Worker(
   async (job) => {
     console.log('processing job', job.id, job.name, job.data);
     const { candidateId, cvPath, reportPath, cvUrl, reportUrl } = job.data;
+    updateEvaluationStatus(candidateId, {
+      stage: "Processing",
+      status: "processing",
+      progress: 0,
+      updatedAt: new Date().toISOString(),
+    })
     return evaluateDocuments({ candidateId, cvPath, projectPath: reportPath, cvUrl, projectUrl: reportUrl });
   },
   { connection: connectionObj, concurrency: 2 }
 );
 
 worker.on('completed', (job) => {
-  console.log('job completed', job.id);
+  updateEvaluationStatus(job.data.candidateId, {
+      stage: "Done",
+      status: "completed",
+      progress: 100,
+      updatedAt: new Date().toISOString(),
+    });
 });
 worker.on('failed', (job, err) => {
-  console.error('job failed', job?.id, err);
+  updateEvaluationStatus(job?.data.candidateId, {
+      stage: err.message,
+      status: "Error",
+      progress: 100,
+      updatedAt: new Date().toISOString(),
+    });
 });
 console.log(`Worker started (queue=${config.queueName})`);

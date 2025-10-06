@@ -1,58 +1,38 @@
 import express from 'express';
 import multer from 'multer';
 import { googleAuth, AuthRequest } from './middleware';
-import { db, bucket, generateSignedUploadUrl, addCandidate, saveFileMetadata, updateEvaluationStatus, getResult } from '../services/firebase';
+import { db, generateSignedUploadUrl, addCandidate, saveFileMetadata, updateEvaluationStatus, getResult } from '../services/firebase';
 import { evaluationQueue } from '../services/queue';
-import { validatePdfBuffer } from '../utils/validators';
 import { evaluateDocuments } from '../services/evaluator';
-import admin from 'firebase-admin';
 import { v4 as uuidv4 } from 'uuid';
 import { config } from '../config';
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: config.maxUploadBytes } });
 
+
 /**
  * POST /api/upload
  * generate signed URLs for upload for backend minimum bandwidth
  * multipart form-data with cv and report files
  */
-router.post('/upload', googleAuth, upload.fields([{ name: 'cv' }, { name: 'report' }]), async (req: AuthRequest, res) => {
+router.post('/upload', googleAuth, async (req: AuthRequest, res) => {
   try {
 
-    const files = req.files as { [fieldname: string]: Express.Multer.File[] };
-    if (!files || !files.cv || !files.report) {
-      return res.status(400).json({ error: 'cv and report files are required' });
-    }
-
+    const { fileName, fileType } = req.body;
+    const candidateId = uuidv4(); // Automatically generate candidateId
+    const dest = `candidates/${candidateId}/${fileName}-${Date.now()}.pdf`;
     
+    const url = await generateSignedUploadUrl(dest, fileType);
 
-    const cv = files.cv[0];
-    const report = files.report[0];
+    await addCandidate(candidateId || 'anonymous', dest, '', url, '');
 
-    // basic validation
-    if (!validatePdfBuffer(cv.buffer) || !validatePdfBuffer(report.buffer)) {
-      return res.status(400).json({ error: 'Uploaded files must be PDFs' });
-    }
-
-  
-    const candidateId = uuidv4();
-
-    for (const fileType of ["cv", "project"]) {
-      const file = files[fileType]?.[0];
-      if (!file) continue;
-
-      const dest = `candidates/${candidateId}/${file.originalname}-${Date.now()}.pdf`;
-      const url = await generateSignedUploadUrl(dest, file.mimetype);
-
-      await addCandidate(candidateId || 'anonymous', dest, '', url, '');
-
-      return {
-        signedUrl: url,
-        storagePath: dest,
-        candidateId,
-      };
-    }
+    return {
+      signedUrl: url,
+      storagePath: dest,
+      candidateId,
+    };
+    
   } catch (err) {
     console.error('upload error', err);
     return res.status(500).json({ error: 'Upload failed' });
@@ -90,9 +70,16 @@ router.post('/evaluate', googleAuth, express.json(), async (req: AuthRequest, re
     if (!doc.exists) return res.status(404).json({ error: 'candidate not found' });
     const data = doc.data();
 
+    const update = {
+        stage: 'queued',
+        progress: 0,
+        status: 'queued',
+        updatedAt: new Date().toISOString,
+      }
+
     if (runNow) {
       // optional synchronous (not recommended for very long jobs)
-      await updateEvaluationStatus(candidateId, 'evaluating');
+      await updateEvaluationStatus(candidateId, update);
       // attempt to run evaluation code inline once
       await evaluateDocuments({ candidateId, cvPath: data!.cvPath, projectPath: data!.reportPath, cvUrl: data!.cvUrl, projectUrl: data!.projectUrl})
         .then(() => console.log('runNow completed for', candidateId))
@@ -101,7 +88,10 @@ router.post('/evaluate', googleAuth, express.json(), async (req: AuthRequest, re
     } else {
       // enqueue normally
       await evaluationQueue.add(config.queueName, { candidateId, cvPath: data!.cvPath, projectPath: data!.reportPath, cvUrl: data!.cvUrl, projectUrl: data!.projectUrl }, { attempts: 3 });
-      await updateEvaluationStatus(candidateId, 'queued');
+      
+      // update evaluation status on firestore
+      await updateEvaluationStatus(candidateId, update);
+
       return res.json({ message: 'Re-evaluation queued' });
     }
   } catch (err) {

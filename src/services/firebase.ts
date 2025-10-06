@@ -116,7 +116,9 @@ export async function saveResult(evaluation: any, userId: string, meta?: any): P
 
   const record = {
     userId: userId || "anonymous",
+    stage: "completed",
     status: "completed",
+    progress: 100,
     result: evaluation,
     cvUrl: meta?.cvUrl || "",
     projectUrl: meta?.projectUrl || "",
@@ -129,9 +131,9 @@ export async function saveResult(evaluation: any, userId: string, meta?: any): P
 }
 
 // 🔹 Update job status
-export async function updateEvaluationStatus(userId: string, status: string) {
+export async function updateEvaluationStatus(userId: string, update: any) {
   const ref = db.collection("evaluations").doc(userId);
-  await ref.update({ status, updatedAt: new Date() });
+  await ref.update(update);
 }
 
 // 🔹 Get result by ID
