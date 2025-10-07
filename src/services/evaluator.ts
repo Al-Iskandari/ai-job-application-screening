@@ -3,6 +3,11 @@ import { getEmbedding, runGeminiChain, geminiSummarize } from "../services/gemin
 import { queryZilliz } from "../services/zillizClient";
 import { downloadFileToBuffer, updateEvaluationStatus, saveResult } from "./firebase";
 import { extractTextFromPdfBuffer } from "../utils/pdf";
+import { setStage,STAGES, STAGE_CONFIG } from "../utils/PipelineStagesHandler";
+import { config } from "../config";
+import { retryStage } from "../utils/errorHandler";
+
+const { DEFAULT_STAGE_RETRIES, DEFAULT_STAGE_BASE_DELAY_MS, DEFAULT_STAGE_TIMEOUT_MS } = config;
 
 //Payload interface for job data
 interface Payload {
@@ -13,114 +18,188 @@ interface Payload {
   projectUrl: string;
 }
 
-const STAGES = [
-  { name: "Download files and extract text", progress: 10 },
-  { name: "Parse text from PDF buffers", progress: 20 },
-  { name: "Generate embeddings", progress: 30 },
-  { name: "Retrieve context from Zilliz", progress: 40 },
-  { name: "Call Gemini for CV evaluation", progress: 55 },
-  { name: "Call Gemini for Project evaluation", progress: 70 },
-  { name: "Summarize evaluation", progress: 80 },
-  { name: "Combine evaluations", progress: 90 },
-  { name: "Sanitize Gemini response", progress: 95 },
-  { name: "Save evaluation to Firestore", progress: 100 },
-];
-
-// Helper function to streamline evaluation status
-async function setStage(jobId: string, stageIndex: number, status: "running" | "done" | "failed", error?: string) {
-  const stage = STAGES[stageIndex];
-  const update: any = {
-    stage: stage.name,
-    progress: stage.progress,
-    status: status === "failed" ? "failed" : "processing",
-    updatedAt: new Date().toISOString(),
-  };
-  if (error) update.error = error;
-  await updateEvaluationStatus(jobId, update);
-}
-
 // Main evaluation function
 export async function evaluateDocuments({ candidateId, cvPath, projectPath, cvUrl, projectUrl }: Payload) {
+
+  // local holders for intermediate outputs
+  let downloaded: any = null;
+  let parsed: any = null;
+  let embeddings: any = null;
+  let context: any = null;
+  let cvResult: any = null;
+  let projectResult: any = null;
+  let summary: any = null;
+  let combined: any = null;
+  let sanitized: any = null;
 
   try {
 
     // 1. Download files and extract text
-    await setStage(candidateId, 0, "running");
-    const cvBuffer = await downloadFileToBuffer(cvPath);
-    const projectBuffer = await downloadFileToBuffer(projectPath);
-    await setStage(candidateId, 0, "done");
+    const stage1Config = STAGE_CONFIG[STAGES[0].name] || {};
+    downloaded = await retryStage(
+      candidateId,
+      0,
+      async () => {
+        const cvBuffer = await downloadFileToBuffer(cvPath);
+        const projectBuffer = await downloadFileToBuffer(projectPath);
+        return { cvBuffer, projectBuffer };
+      },
+      stage1Config.attempts || DEFAULT_STAGE_RETRIES,
+      stage1Config.baseDelayMs || DEFAULT_STAGE_BASE_DELAY_MS,
+      stage1Config.timeoutMs || DEFAULT_STAGE_TIMEOUT_MS
+    );
 
     // 2. Parse text from PDF buffers
-    await setStage(candidateId, 1, "running");
-    const cvText = await extractTextFromPdfBuffer(cvBuffer);
-    const projectText = await extractTextFromPdfBuffer(projectBuffer);
-    await setStage(candidateId, 1, "done");
+    const { cvBuffer, projectBuffer } = downloaded;
+    const stage2Config = STAGE_CONFIG[STAGES[1].name] || {};
+    parsed = await retryStage(
+      candidateId,
+      1,
+      async () => {
+        const cvText = await extractTextFromPdfBuffer(cvBuffer);
+        const projectText = await extractTextFromPdfBuffer(projectBuffer);
+        return { cvText, projectText };
+      },
+      stage2Config.attempts || DEFAULT_STAGE_RETRIES,
+      stage2Config.baseDelayMs || DEFAULT_STAGE_BASE_DELAY_MS,
+      stage2Config.timeoutMs || DEFAULT_STAGE_TIMEOUT_MS
+    );
 
     // 3. Embeddings
-    await setStage(candidateId, 2, "running");
-    const cvEmbedding = await getEmbedding(cvText);
-    const projectEmbedding = await getEmbedding(projectText);
-    await setStage(candidateId, 2, "done");
+    const { cvText, projectText } = parsed;
+    const stage3Config = STAGE_CONFIG[STAGES[2].name] || {};
+    embeddings = await retryStage(
+      candidateId,
+      2,
+      async () => {
+        const cvEmbedding = await getEmbedding(cvText);
+        const projectEmbedding = await getEmbedding(projectText);
+        return { cvEmbedding, projectEmbedding };
+      },
+      stage3Config.attempts || DEFAULT_STAGE_RETRIES,
+      stage3Config.baseDelayMs || DEFAULT_STAGE_BASE_DELAY_MS,
+      stage3Config.timeoutMs || DEFAULT_STAGE_TIMEOUT_MS
+    );
 
     // 4. Retrieve context from Zilliz
-    await setStage(candidateId, 3, "running");
-    const jobDescDocs = await queryZilliz(cvEmbedding, ["job_description"]);
-    const rubricCvDocs = await queryZilliz(cvEmbedding, ["rubric_cv"]);
-    const caseStudyDocs = await queryZilliz(projectEmbedding, ["case_study"]);
-    const rubricProjectDocs = await queryZilliz(projectEmbedding, ["rubric_project"]);
-    await setStage(candidateId, 3, "done");
+    const { cvEmbedding, projectEmbedding } = embeddings;
+    const stage4Config = STAGE_CONFIG[STAGES[3].name] || {};
+    context = await retryStage(
+      candidateId,
+      3,
+      async () => {
+        const jobDescDocs = await queryZilliz(cvEmbedding, ["job_description"]);
+        const rubricCvDocs = await queryZilliz(cvEmbedding, ["rubric_cv"]);
+        const caseStudyDocs = await queryZilliz(projectEmbedding, ["case_study"]);
+        const rubricProjectDocs = await queryZilliz(projectEmbedding, ["rubric_project"]);
+        return { jobDescDocs, rubricCvDocs, caseStudyDocs, rubricProjectDocs };
+      },
+      stage4Config.attempts || DEFAULT_STAGE_RETRIES,
+      stage4Config.baseDelayMs || DEFAULT_STAGE_BASE_DELAY_MS,
+      stage4Config.timeoutMs || DEFAULT_STAGE_TIMEOUT_MS
+    );
 
     // 5. Call Gemini for cv evaluation
-    await setStage(candidateId, 4, "running");
-    const cvEvaluation = await runGeminiChain({
-      type: "cv",
-      text: cvText,
-      relevantDocs: jobDescDocs.join("\n---\n"),
-      rubricDocs: rubricCvDocs.join("\n---\n"),
-    });
-    await setStage(candidateId, 4, "done");
+    const { jobDescDocs, rubricCvDocs, caseStudyDocs, rubricProjectDocs } = context;
+    const stage5Config = STAGE_CONFIG[STAGES[4].name] || {};
+    cvResult = await retryStage(
+      candidateId,
+      4,
+      async () => {
+        return await runGeminiChain({
+          type: "cv",
+          text: cvText,
+          relevantDocs: jobDescDocs.join("\n---\n"),
+          rubricDocs: rubricCvDocs.join("\n---\n"),
+        });
+      },
+      stage5Config.attempts || DEFAULT_STAGE_RETRIES,
+      stage5Config.baseDelayMs || DEFAULT_STAGE_BASE_DELAY_MS,
+      stage5Config.timeoutMs || DEFAULT_STAGE_TIMEOUT_MS
+    );
 
     // 6. Call Gemini for project evaluation
-    await setStage(candidateId, 5, "running");
-    const projectEvaluation = await runGeminiChain({
-      type: "project",
-      text: projectText,
-      relevantDocs: caseStudyDocs.join("\n---\n"),
-      rubricDocs: rubricProjectDocs.join("\n---\n"),
-    });
-    await setStage(candidateId, 5, "done");
+    const stage6Config = STAGE_CONFIG[STAGES[5].name] || {};
+    projectResult = await retryStage(
+      candidateId,
+      5,
+      async () => {
+        return await runGeminiChain({
+          type: "project",
+          text: projectText,
+          relevantDocs: caseStudyDocs.join("\n---\n"),
+          rubricDocs: rubricProjectDocs.join("\n---\n"),
+        });
+      },
+      stage6Config.attempts || DEFAULT_STAGE_RETRIES,
+      stage6Config.baseDelayMs || DEFAULT_STAGE_BASE_DELAY_MS,
+      stage6Config.timeoutMs || DEFAULT_STAGE_TIMEOUT_MS
+    );
 
     // 7. Summarize evaluation
-    await setStage(candidateId, 6, "running");
-    const summary = await geminiSummarize(cvEvaluation, projectEvaluation);
-    await setStage(candidateId, 6, "done");
+    const { cvEvaluation } = cvResult;
+    const { projectEvaluation } = projectResult;
+    const stage7Config = STAGE_CONFIG[STAGES[6].name] || {};
+    summary = await retryStage(
+      candidateId,
+      6,
+      async () => {
+        return await geminiSummarize(cvEvaluation, projectEvaluation);
+      },
+      stage7Config.attempts || DEFAULT_STAGE_RETRIES,
+      stage7Config.baseDelayMs || DEFAULT_STAGE_BASE_DELAY_MS,
+      stage7Config.timeoutMs || DEFAULT_STAGE_TIMEOUT_MS
+    );
 
     // 8. Combine evaluations
-    await setStage(candidateId, 7, "running");
-    const combinedEvaluation = {
-      ...cvEvaluation,
-      ...projectEvaluation,
-      ...summary,
-    };
-    await setStage(candidateId, 7, "done");
+    const stage8Config = STAGE_CONFIG[STAGES[7].name] || {};
+    combined = await retryStage(
+      candidateId,
+      7,    
+      async () => {
+        return { ...cvEvaluation, ...projectEvaluation, ...summary };
+      },
+      stage8Config.attempts || DEFAULT_STAGE_RETRIES,
+      stage8Config.baseDelayMs || DEFAULT_STAGE_BASE_DELAY_MS,
+      stage8Config.timeoutMs || DEFAULT_STAGE_TIMEOUT_MS
+    );
 
     // 9. Sanitize gemini response
-    await setStage(candidateId, 8, "running");
-    const sanitizedEvaluation = JSON.parse(combinedEvaluation);
-    sanitizedEvaluation.cv_match_rate = Math.round(Math.min(Math.max(sanitizedEvaluation.cv_match_rate, 0), 1) * 100);
-    sanitizedEvaluation.cv_feedback = sanitizedEvaluation.cv_feedback.trim();
-    sanitizedEvaluation.project_score = Math.round(Math.min(Math.max(sanitizedEvaluation.project_score, 1), 5) * 100);
-    sanitizedEvaluation.project_feedback = sanitizedEvaluation.project_feedback.trim();
-    sanitizedEvaluation.overall_summary = sanitizedEvaluation.overall_summary.trim();
-    await setStage(candidateId, 8, "done");
+    const { combinedEvaluation } = combined;
+    const stage9Config = STAGE_CONFIG[STAGES[8].name] || {};
+    sanitized = await retryStage(
+      candidateId,
+      8,
+      async () => {
+        const sanitized = JSON.parse(combinedEvaluation);
+        sanitized.cv_match_rate = Math.round(Math.min(Math.max(sanitized.cv_match_rate, 0), 1) * 100);
+        sanitized.cv_feedback = sanitized.cv_feedback.trim();
+        sanitized.project_score = Math.round(Math.min(Math.max(sanitized.project_score, 1), 5) * 100);
+        sanitized.project_feedback = sanitized.project_feedback.trim();
+        sanitized.overall_summary = sanitized.overall_summary.trim();
+        return sanitized;
+      },
+      stage9Config.attempts || DEFAULT_STAGE_RETRIES,
+      stage9Config.baseDelayMs || DEFAULT_STAGE_BASE_DELAY_MS,
+      stage9Config.timeoutMs || DEFAULT_STAGE_TIMEOUT_MS
+    );
 
     // 10. Save evaluation to firestore
-    await setStage(candidateId, 9, "running");
-    const resultId = await saveResult(sanitizedEvaluation, candidateId, { cvUrl: cvUrl, projectUrl: projectUrl });
-    await setStage(candidateId, 9, "done");
+    const sanitizedEvaluation = sanitized;
+    const stage10Config = STAGE_CONFIG[STAGES[9].name] || {};
+    await retryStage(
+      candidateId,
+      9,
+      async () => {
+        await saveResult(sanitizedEvaluation, candidateId, { cvUrl: cvUrl, projectUrl: projectUrl });
+      },
+      stage10Config.attempts || DEFAULT_STAGE_RETRIES,
+      stage10Config.baseDelayMs || DEFAULT_STAGE_BASE_DELAY_MS,
+      stage10Config.timeoutMs || DEFAULT_STAGE_TIMEOUT_MS
+    );
 
     // 11. Return evaluation
-    return { resultId, evaluation: sanitizedEvaluation };
+    return { candidateId, evaluation: sanitizedEvaluation };
   } catch (error) {
     console.error("Evaluation error:", error);
     throw error;

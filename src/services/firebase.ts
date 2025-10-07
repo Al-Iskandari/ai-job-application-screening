@@ -17,11 +17,11 @@ export const bucket = getStorage().bucket();
 export const db = getFirestore();
 
 // 🔹 Upload file to Firebase Storage
-export async function uploadToFirebase(userId: string, file: Express.Multer.File,  dest: string): Promise<string> {
+export async function uploadToFirebase(id: string, file: Express.Multer.File,  dest: string): Promise<string> {
   try {
   // metadata for public access
   const metadata = {
-    metadata: { firebaseStorageDownloadTokens: userId },
+    metadata: { firebaseStorageDownloadTokens: id },
     contentType: file.mimetype,
   };
 

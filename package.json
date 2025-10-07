@@ -7,7 +7,10 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node dist/index.js",
     "build": "npx tsc",
-    "dev": "nodemon src/index.ts"
+    "load:systemdocs": "nodemon scripts/loadSystemDocs.ts",
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:worker\"",
+    "dev:server": "nodemon src/index.ts",
+    "dev:worker": "nodemon src/worker.ts"
   },
   "keywords": [],
   "author": "",

@@ -12,6 +12,7 @@ dist/
 .env
 .env.local
 .env.*.local
+smartmenu-63146-aa95fca1f3f7.json
 
 # OS generated files
 .DS_Store

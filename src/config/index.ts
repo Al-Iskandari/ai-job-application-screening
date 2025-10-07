@@ -28,4 +28,9 @@ export const config = {
 
   // Queue Name
   queueName: process.env.QUEUE_NAME || 'evaluation',
+
+  // Pipeline stages config
+  DEFAULT_STAGE_RETRIES: 3, // attempts per stage
+  DEFAULT_STAGE_BASE_DELAY_MS: 2000, // initial backoff
+  DEFAULT_STAGE_TIMEOUT_MS: 60_000, // 60s default timeout for LLM/remote calls
 };
