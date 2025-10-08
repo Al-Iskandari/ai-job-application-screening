@@ -1,5 +1,8 @@
-import { MilvusClient } from "@zilliz/milvus2-sdk-node";
-import { config } from "../config";
+import { FloatVector, MilvusClient } from "@zilliz/milvus2-sdk-node";
+import { config } from "@/config/index.js";
+import { v4 as uuidv4 } from "uuid";
+import { Collection } from "@zilliz/milvus2-sdk-node/dist/milvus/grpc/Collection.js";
+import e from "express";
 
 if (!config.zillizApiKey) {
   throw new Error("ZILLIZ_API_KEY is not set");
@@ -13,38 +16,69 @@ export const client = new MilvusClient({
   token: config.zillizApiKey,
 });
 
-export async function queryZilliz(embedding: number[], docTypes: string[]) {
-  const results = await client.search({
-    collection_name: "system_docs",
-    data: [embedding],
-    anns_field: "embedding",
-    param: { nprobe: 10 },
-    limit: 5,
-    expr: `doc_type in ["${docTypes.join('","')}"]`,
-    output_fields: ["doc_type", "title", "text"]
-  });
-  return results.results;
+export async function queryZilliz(embedding: FloatVector, docTypes: string[]) {
+  try {
+    const dataParams = {
+      "data": [embedding],
+      "anns_field": "embedding",
+      "param": { "nprobe": 10 },
+      "limit": 5,
+    };
+    const results = await client.search({
+      collection_name: "system_docs",
+      data: [dataParams],
+      limit: 5,
+      expr: `doc_type in ["${docTypes.join('","')}"]`,
+      output_fields: ["doc_type", "title", "text"]
+    });
+    return results.results;
+  } catch (err) {
+    console.error("Error querying Zilliz:", err);
+  }
 }
 
-export async function insertZilliz(embedding: number[], docType: string, title: string, text: string) {
-  await client.insert({
-    collection_name: "system_docs",
-    fields_data: [
-      {
-        doc_type: docType,
-        title,
-        text,
-        embedding,
-      },
-    ],
-  });
+export async function insertZilliz(embedding: FloatVector, docType: string, title: string, text: string) {
+  try {
+    const data = [
+        {
+          embedding,
+          doc_type: docType,
+          title,
+          chunk_id: 2,
+          text,
+        },
+      ];
+
+    const results = await client.insert({
+      collection_name: "system_docs",
+      data: data,
+    });
+    
+    console.log(`Inserted chunk into Zilliz: ${JSON.stringify(results)} record(s)`);
+
+    /*// Flush the data to ensure it's persisted and searchable
+    await client.flush({
+      collection_names: ["system_docs"],
+    });
+
+    //// Load the collection into memory to make it searchable
+    await client.loadCollection({
+      collection_name: "system_docs",
+      replica_number: 1,
+    });
+
+    await client.closeConnection();*/
+  } catch (err) {
+    console.error("Error inserting into Zilliz:", err);
+  }
 }
 
 export async function ensureCollection(COLLECTION_NAME: string) {
   const collections: any = await client.showCollections();
-  const exists = collections.filter((c: any) => c.name === COLLECTION_NAME);
 
-  if (exists.length === 0) {
+  if (COLLECTION_NAME in collections) {
+    console.log(`📦 Collection ${COLLECTION_NAME} already exists`);
+  } else {
     console.log(`📦 Creating collection: ${COLLECTION_NAME}`);
     await client.createCollection({
       collection_name: COLLECTION_NAME,

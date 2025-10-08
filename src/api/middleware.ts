@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { OAuth2Client } from 'google-auth-library';
 import jwt from 'jsonwebtoken';
-import { config } from '../config';
+import { config } from '@/config/index.js';
 
 const oauthClient = new OAuth2Client(config.googleOauthClientId);
 

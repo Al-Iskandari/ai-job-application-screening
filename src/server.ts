@@ -1,18 +1,27 @@
 import express from 'express';
-import apiRouter from './api/routes';
-import { config } from './config';
+import router from '@/api/routes.js';
+import { config } from '@/config/index.js';
 import bodyParser from 'body-parser';
+import path, { dirname } from 'path';
+import { fileURLToPath } from 'url';
 
 const app = express();
 app.use(bodyParser.json({ limit: '5mb' }));
 app.use(bodyParser.urlencoded({ extended: true }));
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+app.use(express.static(path.join(__dirname, '../public')));
+
 // Mount API under /api
-app.use('/api', apiRouter);
+app.use('/api', router);
 
-// health
-app.get('/health', (req, res) => res.json({ status: 'ok', ts: Date.now() }));
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, '../public', 'index.html'));
+});
 
+// Start the server
 app.listen(config.port, () => {
   console.log(`Server listening on port ${config.port}`);
 });

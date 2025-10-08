@@ -31,7 +31,7 @@ export function validateLLMJson(text: string) {
     const json = JSON.parse(cleaned);
     return json;
   } catch (error: any) {
-    console.error("⚠️ LLM JSON validation failed:", error);
+    console.error("LLM JSON validation failed:", error);
     throw new Error("Invalid JSON format from model output.");
   }
 }

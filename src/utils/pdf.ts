@@ -1,12 +1,7 @@
-import fs from "fs";
-import { createRequire } from "module";
-
-const createRequireModule = createRequire(import.meta.url);
-const pdfParse = createRequireModule("pdf-parse");
+import {pdfToText} from 'pdf-ts';
 
 export async function extractTextFromPdfBuffer(buffer: Buffer): Promise<string> {
-  const data = await pdfParse(buffer);
-  const text = (data && data.text) ? data.text : '';
+  const text = await pdfToText(buffer);
   // basic normalization
   return text.replace(/\r\n/g, '\n').trim();
 }

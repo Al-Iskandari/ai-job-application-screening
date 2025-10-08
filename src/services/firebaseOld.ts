@@ -4,11 +4,14 @@ import { v4 as uuidv4 } from "uuid";
 import { getStorage } from "firebase-admin/storage";
 import { getFirestore } from "firebase-admin/firestore";
 import fs from "fs";
-import { config } from "../config";
+import path from "path";
+import { config } from "@/config/index.js";
+
+const serviceAccount = path.resolve(config.firebaseServiceAccountPath);
 
 if (!admin.apps.length) {
   admin.initializeApp({
-    credential: admin.credential.cert(JSON.parse(config.firebaseServiceAccountPath)),
+    credential: admin.credential.cert(JSON.parse(fs.readFileSync(serviceAccount, "utf8"))),
     storageBucket: config.firebaseStorageBucket,
   });
 }

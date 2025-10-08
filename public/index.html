@@ -9,16 +9,29 @@
       src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"
       defer
     ></script>
+    <script
+      src="https://accounts.google.com/gsi/client"
+      async
+      defer
+    ></script>
   </head>
 
   <body class="bg-gray-50 min-h-screen">
     <div
       x-data="app()"
+      x-init="init()"
       class="max-w-3xl mx-auto mt-10 bg-white shadow rounded-lg p-8 space-y-10"
     >
-      <h1 class="text-2xl font-bold text-gray-800 text-center">
-        AI Candidate Screening System
-      </h1>
+      <header class="flex items-center justify-between mb-6">
+        <h1 class="text-2xl font-semibold">AI Screening — Dashboard</h1>
+        <div class="flex items-center space-x-4">
+          <div x-show="!isSignedIn" id="gsi-button-placeholder"></div>
+          <div class="text-sm" x-show="isSignedIn">
+            <div>Signed in as <strong x-text="userEmail"></strong></div>
+            <button @click="signOut()" class="mt-1 bg-red-500 text-white px-3 py-1 rounded text-sm">Sign out</button>
+          </div>
+        </div>
+      </header>
 
       <!-- =======================
            UPLOAD SECTION
@@ -92,6 +105,7 @@
           >
             ✅ Candidate Uploaded! ID:
             <span x-text="candidateId" class="font-mono"></span>
+            <span x-text="message" class="text-sm block mt-1"></span>
           </div>
         </template>
 
@@ -210,10 +224,16 @@
     <script>
       function app() {
         return {
+          // Auth & user
+          isSignedIn: false,
+          idToken: null,
+          userEmail: '',
+          // Store the token for API requests
           files: { cv: null, project: null },
           progress: { cv: 0, project: 0 },
           uploading: false,
           candidateId: "",
+          message: "",
           error: "",
           jobTitle: "",
           candidates: [],
@@ -239,6 +259,70 @@
             { name: "Save evaluation to Firestore", status: "processing" },
           ],
 
+
+          async init() {
+            // Securely fetch Google OAuth Client ID from backend
+            let clientId = "";
+            try {
+              const res = await fetch("api/google-client-id");
+              const { client_id } = await res.json();
+              clientId = client_id;
+            } catch (err) {
+              console.warn("Failed to load Google client ID:", err);
+              return;
+            }
+
+            // Set up callback handler for GIS responses
+            window.handleCredentialResponse = (response) => {
+              this.idToken = response.credential;
+              try {
+                const payload = JSON.parse(atob(this.idToken.split(".")[1]));
+                this.userEmail = payload.email || payload.name || "User";
+              } catch {
+                this.userEmail = "User";
+              }
+              this.isSignedIn = true;
+              document.querySelector("#gsi-button-placeholder").style.display =
+                "none";
+              console.log("Google Sign-In successful:", this.userEmail);
+            };
+
+            // Initialize GIS client
+            window.google?.accounts?.id.initialize({
+              client_id: clientId,
+              callback: window.handleCredentialResponse,
+              auto_select: false,
+              cancel_on_tap_outside: false,
+            });
+
+            // Render classic Sign-In button
+            window.google?.accounts?.id.renderButton(
+              document.getElementById("gsi-button-placeholder"),
+              { theme: "outline", size: "medium" }
+            );
+
+            // Enable One Tap prompt UX
+            window.google?.accounts?.id.prompt((notification) => {
+              if (notification.isNotDisplayed()) {
+                console.log("One Tap not displayed:", notification.getNotDisplayedReason());
+              }
+              if (notification.isSkippedMoment()) {
+                console.log("One Tap skipped:", notification.getSkippedReason());
+              }
+              if (notification.isDismissedMoment()) {
+                console.log("One Tap dismissed:", notification.getDismissedReason());
+              }
+            });
+          },
+
+          signOut() {
+            this.idToken = null;
+            this.isSignedIn = false;
+            this.userEmail = "";
+            window.google?.accounts?.id.disableAutoSelect();
+            document.getElementById("gsi-button-placeholder").style.display = "";
+          },
+
           selectFile(e, type) {
             this.files[type] = e.target.files[0];
           },
@@ -246,52 +330,83 @@
           async uploadFiles() {
             this.error = "";
             this.uploading = true;
+            this.message = "";
+            let candidateId = this.candidateId || null;
             try {
               for (const [type, file] of Object.entries(this.files)) {
                 if (!file) continue;
 
                 // Step 1: Ask backend for signed URL
-                const res = await fetch("/api/upload-url", {
+                const res = await fetch("/api/upload", {
                   method: "POST",
-                  headers: { "Content-Type": "application/json" },
+                  headers: { 
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${this.idToken}`,
+                  },
                   body: JSON.stringify({
                     fileName: file.name,
                     fileType: file.type,
+                    candidateId, // Pass existing candidateId if available
                   }),
                 });
 
-                const { signedUrl, storagePath, candidateId } = await res.json();
-                this.candidateId = candidateId;
+                if (!res.ok) {
+                  const errorData = await res.json();
+                  throw new Error(`Failed to get signed URL for ${type} file, status: ${errorData.message}`);
+                }
 
-                // Step 2: Upload directly to Firebase Storage
+                const { signedUrl, storagePath, candidateId: newCandidateId } = await res.json();
+
+                // Use new candidateId if provided by backend
+                if(!candidateId){
+                  candidateId = newCandidateId;
+                  this.candidateId = newCandidateId;
+                }
+
+                // Step 2: Upload file to Supabase using signed URL
                 const uploadRes = await fetch(signedUrl, {
                   method: "PUT",
                   headers: {
                     "Content-Type": file.type,
-                    "x-goog-meta-uploadedBy": "web-client",
+                    "Authorization": `Bearer ${this.idToken}`,
                   },
                   body: file,
                 });
 
-                if (!uploadRes.ok)
-                  throw new Error(`Failed to upload ${type} file`);
+                if (!uploadRes.ok) {
+                  const errorData = await uploadRes.json();
+                  throw new Error(`Failed to upload ${type} file, status: ${errorData.message} the signedUrl is ${signedUrl}`);
+                }
 
                 this.progress[type] = 100;
 
                 // Step 3: Confirm upload (metadata)
-                await fetch("/api/confirm-upload", {
+                const confirmRes = await fetch("/api/confirm-upload", {
                   method: "POST",
-                  headers: { "Content-Type": "application/json" },
+                  headers: { 
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${this.idToken}`,
+                  },
                   body: JSON.stringify({
                     storagePath,
                     candidateId,
-                    fileType: type,
+                    fileCategory: type,
                   }),
                 });
+
+                const confirmData = await confirmRes.json();
+                if (!confirmData.success) {
+                  throw new Error(`Failed to confirm ${type} upload: ${confirmData.message}`);
+                }
+
+                this.message = confirmData.message;
               }
 
-              // Add candidate to selection
-              this.candidates.push({ id: this.candidateId });
+              // Add candidate to dropdown if not already added
+              if (!this.candidates.some(c => c.id === candidateId)) {
+                this.candidates.push({ id: candidateId });
+              }
+
               this.uploading = false;
             } catch (err) {
               console.error(err);
@@ -312,7 +427,10 @@
               // Start evaluation request
               const res = await fetch("/api/evaluate", {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: { 
+                  "Content-Type": "application/json",
+                  "Authorization": `Bearer ${this.idToken}`,
+                 },
                 body: JSON.stringify({
                   candidateId: this.selectedCandidate,
                   jobTitle: this.jobTitle,
@@ -320,7 +438,7 @@
               });
 
               if (!res.ok) throw new Error("Failed to start evaluation");
-              const { id: evalId } = await res.json();
+              const { candidateId: evalId } = await res.json();
 
               // Begin polling
               this.pollResult(evalId);
@@ -338,7 +456,7 @@
 
                 const data = await res.json();
 
-                // 🔄 Update UI dynamically from backend response
+                // Update UI dynamically from backend response
                 if (data.stage) this.currentStage = data.stage;
                 if (data.progress !== undefined) this.evalProgress = data.progress;
 

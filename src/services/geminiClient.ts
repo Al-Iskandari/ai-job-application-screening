@@ -1,7 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
-import { Float } from "@zilliz/milvus2-sdk-node";
-import { config } from "../config";
-import { validateLLMJson } from "../utils/validators";
+import { config } from "@/config/index.js";
+import { validateLLMJson } from "@/utils/validators.js";
+import { FloatVector } from "@zilliz/milvus2-sdk-node";
 
 if (!config.googleApiKey) {
   throw new Error("GOOGLE_API_KEY is not set");
@@ -81,12 +81,19 @@ export async function geminiSummarize(cvResult: any, projectResult: any) {
 
 // 🔹 Embeddings (RAG)
 export async function getEmbedding(text: string): Promise<number[]> {
-
-  const result = await client.models.embedContent({
-    model: "gemini-embedding-001",
-    contents: text
-  });
-  return result.embeddings as Float[];
+  try {
+    const result = await client.models.embedContent({
+      model: "gemini-embedding-001",
+      contents: text,
+      config: {
+        outputDimensionality: 768,
+      }
+    });
+    return result?.embeddings?.[0].values || [];
+  } catch (error) {
+    console.error("Error getting embedding:", error);
+    return [];
+  }
 }
 
 //build cv prompt

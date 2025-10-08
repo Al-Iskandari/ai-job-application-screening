@@ -1,5 +1,5 @@
-import { config } from "../config";
-import { STAGES, setStage } from "./PipelineStagesHandler";
+import { config } from "@/config/index.js";
+import { STAGES, setStage } from "@/utils/PipelineStagesHandler.js";
 
 
 const { DEFAULT_STAGE_RETRIES, DEFAULT_STAGE_BASE_DELAY_MS, DEFAULT_STAGE_TIMEOUT_MS } = config;

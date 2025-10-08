@@ -1,11 +1,11 @@
 import express from 'express';
 import multer from 'multer';
-import { googleAuth, AuthRequest } from './middleware';
-import { db, generateSignedUploadUrl, addCandidate, saveFileMetadata, updateEvaluationStatus, getResult } from '../services/firebase';
-import { evaluationQueue } from '../services/queue';
-import { evaluateDocuments } from '../services/evaluator';
+import { googleAuth, AuthRequest } from '@/api/middleware.js';
+import { generateSignedUploadUrl, getCandidateData, saveFileMetadata, updateEvaluationStatus, getResult, updateFileMetadata } from '@/services/supabase.js';
+import { evaluationQueue } from '@/services/queue.js';
+import { evaluateDocuments } from '@/services/evaluator.js';
 import { v4 as uuidv4 } from 'uuid';
-import { config } from '../config';
+import { config } from '@/config/index.js';
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: config.maxUploadBytes } });
@@ -19,19 +19,19 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: con
 router.post('/upload', googleAuth, async (req: AuthRequest, res) => {
   try {
 
-    const { fileName, fileType } = req.body;
-    const candidateId = uuidv4(); // Automatically generate candidateId
-    const dest = `candidates/${candidateId}/${fileName}-${Date.now()}.pdf`;
-    
+    const { fileName, fileType, candidateId } = req.body;
+
+    // Reuse candidate if provided
+    const id = candidateId || uuidv4(); // Automatically generate candidateId if not provided
+    const dest = `candidate/${id}/${fileName}-${Date.now()}.pdf`;
+
     const url = await generateSignedUploadUrl(dest, fileType);
 
-    await addCandidate(candidateId || 'anonymous', dest, '', url, '');
-
-    return {
+    return res.json({
       signedUrl: url,
       storagePath: dest,
-      candidateId,
-    };
+      candidateId: id,
+    });
     
   } catch (err) {
     console.error('upload error', err);
@@ -46,14 +46,43 @@ router.post('/upload', googleAuth, async (req: AuthRequest, res) => {
 
 router.post("/confirm-upload", async (req, res) => {
   try {
-    const { storagePath, candidateId, fileType } = req.body;
+    const { candidateId, storagePath, fileCategory } = req.body;
+    if (!candidateId || !storagePath || !fileCategory)
+      return res.status(400).json({ success: false, message: "Missing fields" });
 
-    saveFileMetadata(candidateId, fileType, storagePath);
+    // Determine field to update
+    const updateData: any = { updated_at: new Date().toISOString() };
+    if (fileCategory === "cv") updateData.cv_path = storagePath;
+    else if (fileCategory === "project") updateData.project_path = storagePath;
 
-    res.json({ success: true, message: "Upload verified and metadata set." });
-  } catch (err) {
-    console.error("Error confirming upload:", err);
-    res.status(500).json({ error: "Failed to confirm upload" });
+    // Check if candidate exists
+    const { data: existing, error: selectError } : any = await getCandidateData(candidateId);
+
+    if (selectError && selectError.code !== "PGRST116") {
+      throw selectError;
+    }
+
+    if (existing) {
+      // ✅ Update existing record
+      const result = await updateFileMetadata(candidateId, updateData);
+
+      return res.json({
+        success: true,
+        message: result.message,
+      });
+    } else {
+      // ✅ Insert new record
+      const result = await saveFileMetadata(candidateId, updateData, fileCategory, storagePath);
+
+      return res.json({
+        success: true,
+        message: result.message,
+      });
+      
+    }
+  } catch (err: any) {
+    console.error("Confirm-upload error:", err);
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 
@@ -66,33 +95,36 @@ router.post('/evaluate', googleAuth, express.json(), async (req: AuthRequest, re
     const { jobTitle, candidateId, runNow } = req.body;
     if (!candidateId) return res.status(400).json({ error: 'candidateId is required' });
 
-    const doc = await db.collection('candidates').doc(candidateId).get();
-    if (!doc.exists) return res.status(404).json({ error: 'candidate not found' });
-    const data = doc.data();
+    const { data: docs, error: selectError } = await getCandidateData(candidateId);
+    if (selectError) return res.status(404).json({ error: `Candidate ${candidateId} not found` });
+
+    const cvPath = docs.cv_path
+    const reportPath = docs.project_path;
+    if (!cvPath || !reportPath) return res.status(400).json({ error: 'cv or project report missing for candidate' });
 
     const update = {
         stage: 'queued',
         progress: 0,
         status: 'queued',
-        updatedAt: new Date().toISOString,
+        updated_at: new Date().toISOString(),
       }
 
     if (runNow) {
       // optional synchronous (not recommended for very long jobs)
       await updateEvaluationStatus(candidateId, update);
       // attempt to run evaluation code inline once
-      await evaluateDocuments({ candidateId, cvPath: data!.cvPath, projectPath: data!.reportPath, cvUrl: data!.cvUrl, projectUrl: data!.projectUrl})
+      await evaluateDocuments({ candidateId, cvPath: cvPath, projectPath: reportPath })
         .then(() => console.log('runNow completed for', candidateId))
         .catch((e: any) => console.error('runNow error', e));
-      return res.json({ message: 'Triggered immediate evaluation (running in background)' });
+      return res.json({ candidateId, message: 'Triggered immediate evaluation (running in background)' });
     } else {
       // enqueue normally
-      await evaluationQueue.add(config.queueName, { candidateId, cvPath: data!.cvPath, projectPath: data!.reportPath, cvUrl: data!.cvUrl, projectUrl: data!.projectUrl }, { attempts: 3 });
+      await evaluationQueue.add(config.queueName, { candidateId, cvPath: cvPath, projectPath: reportPath }, { attempts: 3 });
       
       // update evaluation status on firestore
       await updateEvaluationStatus(candidateId, update);
 
-      return res.json({ message: 'Re-evaluation queued' });
+      return res.json({ candidateId, message: 'Re-evaluation queued' });
     }
   } catch (err) {
     console.error('evaluate endpoint error', err);
@@ -107,13 +139,21 @@ router.post('/evaluate', googleAuth, express.json(), async (req: AuthRequest, re
 router.get('/result/:id', googleAuth, async (req: AuthRequest, res) => {
   try {
     const userId = req.params.id;
-    const snap = await getResult(userId);
-    if (!snap.exists) return res.status(404).json({ error: 'Not found' });
-    return res.json(snap.data());
+    const {data: existing, error: selectError} = await getResult(userId);
+    if (!existing) return res.status(404).json({ error: 'Not found' });
+    return res.json(existing);
   } catch (err) {
     console.error('result endpoint error', err);
     return res.status(500).json({ error: 'Server error' });
   }
 });
+
+/** GET /api/config/google-client-id
+ * Returns the Google OAuth Client ID for frontend use
+ */
+router.get("/google-client-id", (req, res) => {
+  res.json({ client_id: config.googleOauthClientId });
+});
+
 
 export default router;

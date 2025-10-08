@@ -1,11 +1,11 @@
 // services/evaluationService.ts
-import { getEmbedding, runGeminiChain, geminiSummarize } from "../services/geminiClient";
-import { queryZilliz } from "../services/zillizClient";
-import { downloadFileToBuffer, updateEvaluationStatus, saveResult } from "./firebase";
-import { extractTextFromPdfBuffer } from "../utils/pdf";
-import { setStage,STAGES, STAGE_CONFIG } from "../utils/PipelineStagesHandler";
-import { config } from "../config";
-import { retryStage } from "../utils/errorHandler";
+import { getEmbedding, runGeminiChain, geminiSummarize } from "@/services/geminiClient.js";
+import { queryZilliz } from "@/services/zillizClient.js";
+import { downloadFileToBuffer, updateEvaluationStatus, saveResult } from "@/services/supabase.js";
+import { extractTextFromPdfBuffer } from "@/utils/pdf.js";
+import { setStage,STAGES, STAGE_CONFIG } from "@/utils/PipelineStagesHandler.js";
+import { config } from "@/config/index.js";
+import { retryStage } from "@/utils/errorHandler.js";
 
 const { DEFAULT_STAGE_RETRIES, DEFAULT_STAGE_BASE_DELAY_MS, DEFAULT_STAGE_TIMEOUT_MS } = config;
 
@@ -14,12 +14,10 @@ interface Payload {
   candidateId: string;
   cvPath: string;
   projectPath: string;
-  cvUrl: string;
-  projectUrl: string;
 }
 
 // Main evaluation function
-export async function evaluateDocuments({ candidateId, cvPath, projectPath, cvUrl, projectUrl }: Payload) {
+export async function evaluateDocuments({ candidateId, cvPath, projectPath }: Payload) {
 
   // local holders for intermediate outputs
   let downloaded: any = null;
@@ -65,7 +63,7 @@ export async function evaluateDocuments({ candidateId, cvPath, projectPath, cvUr
       stage2Config.timeoutMs || DEFAULT_STAGE_TIMEOUT_MS
     );
 
-    // 3. Embeddings
+    // 3. Embeddings(gemini)
     const { cvText, projectText } = parsed;
     const stage3Config = STAGE_CONFIG[STAGES[2].name] || {};
     embeddings = await retryStage(
@@ -81,7 +79,7 @@ export async function evaluateDocuments({ candidateId, cvPath, projectPath, cvUr
       stage3Config.timeoutMs || DEFAULT_STAGE_TIMEOUT_MS
     );
 
-    // 4. Retrieve context from Zilliz
+    // 4. Retrieve context from Zilliz(zilliz)
     const { cvEmbedding, projectEmbedding } = embeddings;
     const stage4Config = STAGE_CONFIG[STAGES[3].name] || {};
     context = await retryStage(
@@ -99,7 +97,7 @@ export async function evaluateDocuments({ candidateId, cvPath, projectPath, cvUr
       stage4Config.timeoutMs || DEFAULT_STAGE_TIMEOUT_MS
     );
 
-    // 5. Call Gemini for cv evaluation
+    // 5. Call Gemini for cv evaluation(gemini)
     const { jobDescDocs, rubricCvDocs, caseStudyDocs, rubricProjectDocs } = context;
     const stage5Config = STAGE_CONFIG[STAGES[4].name] || {};
     cvResult = await retryStage(
@@ -118,7 +116,7 @@ export async function evaluateDocuments({ candidateId, cvPath, projectPath, cvUr
       stage5Config.timeoutMs || DEFAULT_STAGE_TIMEOUT_MS
     );
 
-    // 6. Call Gemini for project evaluation
+    // 6. Call Gemini for project evaluation(gemini)
     const stage6Config = STAGE_CONFIG[STAGES[5].name] || {};
     projectResult = await retryStage(
       candidateId,
@@ -136,20 +134,30 @@ export async function evaluateDocuments({ candidateId, cvPath, projectPath, cvUr
       stage6Config.timeoutMs || DEFAULT_STAGE_TIMEOUT_MS
     );
 
-    // 7. Summarize evaluation
-    const { cvEvaluation } = cvResult;
-    const { projectEvaluation } = projectResult;
+    // 7. Summarize evaluation(gemini)
     const stage7Config = STAGE_CONFIG[STAGES[6].name] || {};
-    summary = await retryStage(
-      candidateId,
-      6,
-      async () => {
-        return await geminiSummarize(cvEvaluation, projectEvaluation);
-      },
-      stage7Config.attempts || DEFAULT_STAGE_RETRIES,
-      stage7Config.baseDelayMs || DEFAULT_STAGE_BASE_DELAY_MS,
-      stage7Config.timeoutMs || DEFAULT_STAGE_TIMEOUT_MS
-    );
+    try {
+      summary = await retryStage(
+        candidateId,
+        6,
+        async () => {
+          return await geminiSummarize(cvResult, projectResult);
+        },
+        stage7Config.attempts || DEFAULT_STAGE_RETRIES,
+        stage7Config.baseDelayMs || DEFAULT_STAGE_BASE_DELAY_MS,
+        stage7Config.timeoutMs || DEFAULT_STAGE_TIMEOUT_MS
+      );
+    } catch (err: any) {
+      // fallback: create a lightweight summary from existing pieces
+      summary = {
+        fallback: true,
+        text: `Summary not available due to an LLM timeout/error. CV brief: ${cvResult?.summary || "N/A"}. Project brief: ${projectResult?.summary || "N/A"}`,
+      };
+      // mark the stage as done (with a warning); setStage already marked failed; overwrite to processing+done
+      await setStage(candidateId, 6, "done");
+      // optionally record a warning flag in job doc
+      await updateEvaluationStatus(candidateId, { stage: "summarize_fallback_used", updated_at: new Date().toISOString() });
+    }
 
     // 8. Combine evaluations
     const stage8Config = STAGE_CONFIG[STAGES[7].name] || {};
@@ -157,7 +165,7 @@ export async function evaluateDocuments({ candidateId, cvPath, projectPath, cvUr
       candidateId,
       7,    
       async () => {
-        return { ...cvEvaluation, ...projectEvaluation, ...summary };
+        return { ...cvResult, ...projectResult, ...summary };
       },
       stage8Config.attempts || DEFAULT_STAGE_RETRIES,
       stage8Config.baseDelayMs || DEFAULT_STAGE_BASE_DELAY_MS,
@@ -191,7 +199,7 @@ export async function evaluateDocuments({ candidateId, cvPath, projectPath, cvUr
       candidateId,
       9,
       async () => {
-        await saveResult(sanitizedEvaluation, candidateId, { cvUrl: cvUrl, projectUrl: projectUrl });
+        await saveResult(sanitizedEvaluation, candidateId, { cvUrl: null, projectUrl: null });
       },
       stage10Config.attempts || DEFAULT_STAGE_RETRIES,
       stage10Config.baseDelayMs || DEFAULT_STAGE_BASE_DELAY_MS,

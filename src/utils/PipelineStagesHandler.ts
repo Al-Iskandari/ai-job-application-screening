@@ -1,4 +1,4 @@
-import { updateEvaluationStatus } from "../services/firebase";
+import { updateEvaluationStatus } from "@/services/supabase.js";
 type StageName =
   | "Download files and extract text"
   | "Parse text from PDF buffers"
@@ -57,7 +57,7 @@ async function setStage(jobId: string, stageIndex: number, status: "running" | "
     stage: stage.name,
     progress: stage.progress,
     status: status === "failed" ? "failed" : "processing",
-    updatedAt: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
   };
   if (error) update.error = error;
   await updateEvaluationStatus(jobId, update);

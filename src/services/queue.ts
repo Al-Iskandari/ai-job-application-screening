@@ -1,9 +1,13 @@
 import { Queue } from 'bullmq';
-import IORedis from 'ioredis';
-import { config } from '../config';
+import { RedisOptions } from 'ioredis';
+import { config } from '@/config/index.js';
 
-const connection = new IORedis(config.redisUrl);
-export const evaluationQueue = new Queue(config.queueName, { connection });
+export const connectionObj: RedisOptions = {
+  host: config.redisHost || "127.0.0.1",
+  port: config.redisPort || 6379,
+  password: config.redisPassword || undefined,
+  maxRetriesPerRequest: null,  // Required by BullMQ
+  enableReadyCheck: false,   
+};
 
-// Export connection if worker files need it
-export const connectionObj = connection;
+export const evaluationQueue = new Queue(config.queueName, { connection: connectionObj });
