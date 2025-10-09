@@ -1,11 +1,12 @@
 import express from 'express';
 import multer from 'multer';
-import { googleAuth, AuthRequest } from '@/api/middleware.js';
-import { generateSignedUploadUrl, getCandidateData, saveFileMetadata, updateEvaluationStatus, getResult, updateFileMetadata } from '@/services/supabase.js';
+import { firebaseAuth, AuthRequest } from '@/api/middleware.js';
+import { generateSignedUploadUrl, getAllCandidates, getCandidateData, saveFileMetadata, saveResult, getResult, updateFileMetadata } from '@/services/supabase.js';
 import { evaluationQueue } from '@/services/queue.js';
 import { evaluateDocuments } from '@/services/evaluator.js';
 import { v4 as uuidv4 } from 'uuid';
 import { config } from '@/config/index.js';
+import { stat } from 'node:fs';
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: config.maxUploadBytes } });
@@ -16,7 +17,7 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: con
  * generate signed URLs for upload for backend minimum bandwidth
  * multipart form-data with cv and report files
  */
-router.post('/upload', googleAuth, async (req: AuthRequest, res) => {
+router.post('/upload', firebaseAuth, async (req: AuthRequest, res) => {
   try {
 
     const { fileName, fileType, candidateId } = req.body;
@@ -44,7 +45,7 @@ router.post('/upload', googleAuth, async (req: AuthRequest, res) => {
  * body: { storagePath, candidateId, fileType } -> confirm upload
  */
 
-router.post("/confirm-upload", async (req, res) => {
+router.post("/confirm-upload", firebaseAuth, async (req: AuthRequest, res) => {
   try {
     const { candidateId, storagePath, fileCategory } = req.body;
     if (!candidateId || !storagePath || !fileCategory)
@@ -90,7 +91,7 @@ router.post("/confirm-upload", async (req, res) => {
  * POST /api/evaluate
  * body: { candidateId } -> trigger re-evaluation (enqueue or run immediately)
  */
-router.post('/evaluate', googleAuth, express.json(), async (req: AuthRequest, res) => {
+router.post('/evaluate', firebaseAuth, express.json(), async (req: AuthRequest, res) => {
   try {
     const { jobTitle, candidateId, runNow } = req.body;
     if (!candidateId) return res.status(400).json({ error: 'candidateId is required' });
@@ -101,17 +102,23 @@ router.post('/evaluate', googleAuth, express.json(), async (req: AuthRequest, re
     const cvPath = docs.cv_path
     const reportPath = docs.project_path;
     if (!cvPath || !reportPath) return res.status(400).json({ error: 'cv or project report missing for candidate' });
+    
+    if (!jobTitle) return res.status(400).json({ error: 'job_title is required' });
 
-    const update = {
+    const initEvaluation = {
+        candidate_id: candidateId,
+        job_title: jobTitle,
+        status: 'queued',
         stage: 'queued',
         progress: 0,
-        status: 'queued',
+        result: {},
+        created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }
 
     if (runNow) {
       // optional synchronous (not recommended for very long jobs)
-      await updateEvaluationStatus(candidateId, update);
+      await saveResult(initEvaluation);
       // attempt to run evaluation code inline once
       await evaluateDocuments({ candidateId, cvPath: cvPath, projectPath: reportPath })
         .then(() => console.log('runNow completed for', candidateId))
@@ -122,7 +129,7 @@ router.post('/evaluate', googleAuth, express.json(), async (req: AuthRequest, re
       await evaluationQueue.add(config.queueName, { candidateId, cvPath: cvPath, projectPath: reportPath }, { attempts: 3 });
       
       // update evaluation status on firestore
-      await updateEvaluationStatus(candidateId, update);
+      await saveResult(initEvaluation);
 
       return res.json({ candidateId, message: 'Re-evaluation queued' });
     }
@@ -132,11 +139,24 @@ router.post('/evaluate', googleAuth, express.json(), async (req: AuthRequest, re
   }
 });
 
+/** GET /api/candidates
+ * Returns list of all candidates
+ */
+router.get('/candidates', firebaseAuth, async (req: AuthRequest, res) => {
+  try {
+    const candidates = await getAllCandidates();
+    return res.json(candidates);
+  } catch (err) {
+    console.error('candidates endpoint error', err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+})
+
 /**
  * GET /api/result/:id
  * Returns the evaluation db doc
  */
-router.get('/result/:id', googleAuth, async (req: AuthRequest, res) => {
+router.get('/result/:id', firebaseAuth, async (req: AuthRequest, res) => {
   try {
     const userId = req.params.id;
     const {data: existing, error: selectError} = await getResult(userId);

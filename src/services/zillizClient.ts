@@ -22,12 +22,12 @@ export async function queryZilliz(embedding: FloatVector, docTypes: string[]) {
       "data": [embedding],
       "anns_field": "embedding",
       "param": { "nprobe": 10 },
-      "limit": 5,
+      "limit": 3,
     };
     const results = await client.search({
       collection_name: "system_docs",
       data: [dataParams],
-      limit: 5,
+      limit: 3,
       expr: `doc_type in ["${docTypes.join('","')}"]`,
       output_fields: ["doc_type", "title", "text"]
     });

@@ -29,6 +29,7 @@ export function validateLLMJson(text: string) {
       .trim();
 
     const json = JSON.parse(cleaned);
+    console.log("Validated LLM JSON:", json);
     return json;
   } catch (error: any) {
     console.error("LLM JSON validation failed:", error);

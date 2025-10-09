@@ -15,33 +15,49 @@ new Queue(config.queueName, { connection: connectionObj });
 const worker = new Worker(
   config.queueName,
   async (job) => {
-    console.log('processing job', job.id, job.name, job.data);
-    const { candidateId, cvPath, reportPath } = job.data;
-    updateEvaluationStatus(candidateId, {
-      stage: "Processing",
-      status: "processing",
-      progress: 0,
-      updatedAt: new Date().toISOString(),
-    })
-    return evaluateDocuments({ candidateId, cvPath, projectPath: reportPath });
+    try{
+      console.log('processing job', job.id, job.name, job.data);
+      const { candidateId, cvPath, projectPath } = job.data;
+      const result = await updateEvaluationStatus(candidateId, {
+        stage: "Processing",
+        status: "processing",
+        progress: 0,
+        updated_at: new Date().toISOString(),
+      });
+      if (result.status !== "success") throw new Error(result.message);
+
+      await evaluateDocuments({ candidateId, cvPath, projectPath });
+
+  } catch (error) {
+    console.error(error);
+    return error;
+  }
   },
   { connection: connectionObj, concurrency: 2 }
 );
 
 worker.on('completed', (job) => {
-  updateEvaluationStatus(job.data.candidateId, {
+  try{
+    updateEvaluationStatus(job.data.candidateId, {
       stage: "Done",
       status: "completed",
       progress: 100,
-      updatedAt: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     });
+  } catch (error) {
+    console.error(error);
+  }
 });
 worker.on('failed', (job, err) => {
-  updateEvaluationStatus(job?.data.candidateId, {
+  try{
+    updateEvaluationStatus(job?.data.candidateId, {
       stage: err.message,
       status: "Error",
       progress: 100,
-      updatedAt: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     });
+  } catch (error) {
+    console.error(error);
+  }
 });
 console.log(`Worker started (queue=${config.queueName})`);

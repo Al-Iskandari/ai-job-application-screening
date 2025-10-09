@@ -51,16 +51,22 @@ const STAGE_CONFIG: Partial<
 /**
  * Utility to update the Firestore job doc
  */
-async function setStage(jobId: string, stageIndex: number, status: "running" | "done" | "failed", error?: string) {
-  const stage = STAGES[stageIndex];
-  const update: any = {
-    stage: stage.name,
-    progress: stage.progress,
-    status: status === "failed" ? "failed" : "processing",
-    updated_at: new Date().toISOString(),
-  };
-  if (error) update.error = error;
-  await updateEvaluationStatus(jobId, update);
+async function setStage(jobId: string, stageIndex: number, status: "processing" | "done" | "failed", error?: string) {
+  try{
+    const stage = STAGES[stageIndex];
+    const update: any = {
+      stage: stage.name,
+      progress: stage.progress,
+      status: status === "failed" ? "failed" : "processing",
+      updated_at: new Date().toISOString(),
+    };
+    if (error) update.status = error;
+
+    await updateEvaluationStatus(jobId, update);
+  } catch (error) {
+    console.error("Error updating evaluation status:", error);
+    throw error;
+  }
 }
 
 export { STAGES, STAGE_CONFIG, setStage, StageName };

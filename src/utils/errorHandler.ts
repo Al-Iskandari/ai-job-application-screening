@@ -22,7 +22,7 @@ function backoffDelay(baseMs: number, attempt: number) {
 /**
  * Timeout wrapper: rejects if the provided promise doesn't settle within ms
  */
-function withTimeout<T>(promise: Promise<T>, ms: number, label?: string): Promise<T> {
+async function withTimeout<T>(promise: Promise<T>, ms: number, label?: string): Promise<T> {
   let timer: NodeJS.Timeout;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new Error(`${label ?? "operation"} timed out after ${ms} ms`)), ms);
@@ -47,13 +47,13 @@ async function retryStage<T>(
   let lastError: any;
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
-      // update status to running for this stage
-      await setStage(jobId, stageIndex, "running");
+      // update status to processing for this stage
+      await setStage(jobId, stageIndex, "processing");
       
       // run fn with timeout
       const result = await withTimeout(fn(), timeoutMs, stageName);
       // success: mark done and return
-      await setStage(jobId, stageIndex, "done");
+     await setStage(jobId, stageIndex, "done");
       
       return result;
     } catch (err: any) {
@@ -67,7 +67,7 @@ async function retryStage<T>(
         // exhausted attempts
         // mark as failed (but do not throw here; caller will decide fallback vs hard fail)
         await setStage(jobId, stageIndex, "failed", String(lastError?.message || lastError));
-        throw lastError;
+        throw new Error(lastError?.message || lastError);
       }
     }
   }

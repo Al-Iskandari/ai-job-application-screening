@@ -4,14 +4,35 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>AI Candidate Screening</title>
+    <!-- Tailwind -->
     <script src="https://cdn.tailwindcss.com"></script>
+
+     <!-- Firebase compat build -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+
+    <!-- Firebase Config and Init -->
+    <script>
+        // === Your Firebase Config (safe to expose in frontend) ===
+        const firebaseConfig = {
+          apiKey: "AIzaSyDQj3Gh94lYYyZ8oKzmYTXZ8zH8uZnHPdI",
+          authDomain: "smartmenu-63146.firebaseapp.com",
+          databaseURL: "https://smartmenu-63146.firebaseio.com",
+          projectId: "smartmenu-63146",
+          storageBucket: "smartmenu-63146.firebasestorage.app",
+          messagingSenderId: "663050950155",
+          appId: "1:663050950155:web:7e7019966aa47fe1b6590e"
+        };
+
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+
+        console.log("✅ Firebase initialized");
+    </script>
+
+    <!-- Alpine.js -->
     <script
       src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"
-      defer
-    ></script>
-    <script
-      src="https://accounts.google.com/gsi/client"
-      async
       defer
     ></script>
   </head>
@@ -25,10 +46,22 @@
       <header class="flex items-center justify-between mb-6">
         <h1 class="text-2xl font-semibold">AI Screening — Dashboard</h1>
         <div class="flex items-center space-x-4">
-          <div x-show="!isSignedIn" id="gsi-button-placeholder"></div>
+          <button
+            x-show="!isSignedIn"
+            @click="signIn()"
+            class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+          >
+            Sign in with Google
+          </button>
+
           <div class="text-sm" x-show="isSignedIn">
             <div>Signed in as <strong x-text="userEmail"></strong></div>
-            <button @click="signOut()" class="mt-1 bg-red-500 text-white px-3 py-1 rounded text-sm">Sign out</button>
+            <button
+              @click="signOutUser()"
+              class="mt-1 bg-red-500 text-white px-3 py-1 rounded text-sm"
+            >
+              Sign out
+            </button>
           </div>
         </div>
       </header>
@@ -132,6 +165,7 @@
           <label class="block mb-1 font-medium">Select Candidate</label>
           <select
             x-model="selectedCandidate"
+            @focus="getCandidates()"
             class="w-full border border-gray-300 rounded p-2"
           >
             <option value="">-- Choose a Candidate --</option>
@@ -181,7 +215,7 @@
                       'bg-green-100 text-green-700 border border-green-300':
                         step.status === 'done',
                       'bg-yellow-100 text-yellow-700 border border-yellow-300':
-                        step.status === 'running',
+                        step.status === 'processing',
                       'bg-gray-100 text-gray-600 border border-gray-300':
                         step.status === 'processing',
                       'bg-red-100 text-red-700 border border-red-300':
@@ -190,8 +224,8 @@
                     x-text="
                       step.status === 'done'
                         ? 'Done'
-                        : step.status === 'running'
-                        ? 'Running'
+                        : step.status === 'processing'
+                        ? 'processing'
                         : step.status === 'failed'
                         ? 'Failed'
                         : 'Pending'
@@ -220,15 +254,14 @@
         </template>
       </section>
     </div>
-
+    <!-- Firebase SDK -->
     <script>
+      // === Alpine.js App Logic ===
       function app() {
         return {
-          // Auth & user
-          isSignedIn: false,
+          userEmail: "",
           idToken: null,
-          userEmail: '',
-          // Store the token for API requests
+          isSignedIn: false,
           files: { cv: null, project: null },
           progress: { cv: 0, project: 0 },
           uploading: false,
@@ -241,88 +274,64 @@
           evaluating: false,
           evalError: "",
           evaluationResult: null,
-          pollingTimer: null,
-
-          // New live-tracking variables
           evalProgress: 0,
           currentStage: "Initializing",
+          pollingTimer: null,
           evalSteps: [
-            { name: "Download files and extract text", status: "processing" },
-            { name: "Parse text from PDF buffers", status: "processing" },
-            { name: "Generate embeddings", status: "processing" },
-            { name: "Retrieve context from Zilliz", status: "processing" },
-            { name: "Call Gemini for CV evaluation", status: "processing" },
-            { name: "Call Gemini for Project evaluation", status: "processing" },
-            { name: "Summarize evaluation", status: "processing" },
-            { name: "Combine evaluations", status: "processing" },
-            { name: "Sanitize Gemini response", status: "processing" },
-            { name: "Save evaluation to Firestore", status: "processing" },
+            { name: "Download files and extract text", status: "pending" },
+            { name: "Parse text from PDF buffers", status: "pending" },
+            { name: "Generate embeddings", status: "pending" },
+            { name: "Retrieve context from Zilliz", status: "pending" },
+            { name: "Call Gemini for CV evaluation", status: "pending" },
+            { name: "Call Gemini for Project evaluation", status: "pending" },
+            { name: "Summarize evaluation", status: "pending" },
+            { name: "Combine evaluations", status: "pending" },
+            { name: "Sanitize Gemini response", status: "pending" },
+            { name: "Save evaluation to Firestore", status: "pending" },
           ],
 
-
           async init() {
-            // Securely fetch Google OAuth Client ID from backend
-            let clientId = "";
-            try {
-              const res = await fetch("api/google-client-id");
-              const { client_id } = await res.json();
-              clientId = client_id;
-            } catch (err) {
-              console.warn("Failed to load Google client ID:", err);
-              return;
-            }
-
-            // Set up callback handler for GIS responses
-            window.handleCredentialResponse = (response) => {
-              this.idToken = response.credential;
-              try {
-                const payload = JSON.parse(atob(this.idToken.split(".")[1]));
-                this.userEmail = payload.email || payload.name || "User";
-              } catch {
-                this.userEmail = "User";
-              }
-              this.isSignedIn = true;
-              document.querySelector("#gsi-button-placeholder").style.display =
-                "none";
-              console.log("Google Sign-In successful:", this.userEmail);
-            };
-
-            // Initialize GIS client
-            window.google?.accounts?.id.initialize({
-              client_id: clientId,
-              callback: window.handleCredentialResponse,
-              auto_select: false,
-              cancel_on_tap_outside: false,
-            });
-
-            // Render classic Sign-In button
-            window.google?.accounts?.id.renderButton(
-              document.getElementById("gsi-button-placeholder"),
-              { theme: "outline", size: "medium" }
-            );
-
-            // Enable One Tap prompt UX
-            window.google?.accounts?.id.prompt((notification) => {
-              if (notification.isNotDisplayed()) {
-                console.log("One Tap not displayed:", notification.getNotDisplayedReason());
-              }
-              if (notification.isSkippedMoment()) {
-                console.log("One Tap skipped:", notification.getSkippedReason());
-              }
-              if (notification.isDismissedMoment()) {
-                console.log("One Tap dismissed:", notification.getDismissedReason());
+            // Listen for Firebase Auth state changes
+            firebase.auth().onAuthStateChanged(async (user) => {
+              if (user) {
+                this.userEmail = user.email;
+                this.isSignedIn = true;
+                this.idToken = await user.getIdToken(true);
+                localStorage.setItem("firebase_token", this.idToken);
+                console.log("Signed in as", this.userEmail);
+              } else {
+                this.isSignedIn = false;
+                this.userEmail = "";
+                this.idToken = null;
+                localStorage.removeItem("firebase_token");
               }
             });
           },
 
-          signOut() {
-            this.idToken = null;
+          async signIn() {
+            const provider = new firebase.auth.GoogleAuthProvider();
+            try {
+              const result = await firebase.auth().signInWithPopup(provider);
+              const user = result.user;
+              this.userEmail = user.email;
+              this.isSignedIn = true;
+              this.idToken = await user.getIdToken(true);
+              localStorage.setItem("firebase_token", this.idToken);
+            } catch (error) {
+              console.error("Login failed:", error);
+              alert("Login failed: " + error.message);
+            }
+          },
+
+          async signOutUser() {
+            await firebase.auth().signOut();
             this.isSignedIn = false;
             this.userEmail = "";
-            window.google?.accounts?.id.disableAutoSelect();
-            document.getElementById("gsi-button-placeholder").style.display = "";
+            this.idToken = null;
+            localStorage.removeItem("firebase_token");
           },
 
+          // === Your existing logic below ===
           selectFile(e, type) {
             this.files[type] = e.target.files[0];
           },
@@ -332,6 +341,7 @@
             this.uploading = true;
             this.message = "";
             let candidateId = this.candidateId || null;
+            
             try {
               for (const [type, file] of Object.entries(this.files)) {
                 if (!file) continue;
@@ -415,6 +425,29 @@
             }
           },
 
+          async getCandidates() {
+            try {
+              const res = await fetch("/api/candidates", {
+                method: "GET",
+                headers: {
+                  "Content-Type": "application/json",
+                  "Authorization": `Bearer ${this.idToken}`,
+                },
+              }); 
+              const candidates = await res.json();
+
+              console.log(`Got ${candidates.length} candidates`, candidates);
+              
+              for (const candidate of candidates) {
+                if (!this.candidates.some(c => c.id === candidate.candidate_id)) {
+                  this.candidates.push({ id: candidate.candidate_id });
+                }
+              }
+            } catch (err) {
+              console.warn("Failed to get candidates:", err);
+            }
+          },
+
           async startEvaluation() {
             this.evaluating = true;
             this.evalError = "";
@@ -448,10 +481,26 @@
             }
           },
 
+          /**
+           * Polls the evaluation result every 5 seconds
+           * @param {string} evalId - Unique identifier for the evaluation
+           */
           async pollResult(evalId) {
             this.pollingTimer = setInterval(async () => {
               try {
-                const res = await fetch(`/api/result/${evalId}`);
+                const res = await fetch(`/api/result/${evalId}`, {
+                  method: "GET",
+                  headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${this.idToken}`,
+                  },
+                });
+
+                if(res.status === 401) {
+                  this.message = "You are not signed in";
+                  return null;
+                }
+
                 if (!res.ok) throw new Error("Polling failed");
 
                 const data = await res.json();
@@ -462,7 +511,7 @@
 
                 // Update step statuses
                 this.evalSteps.forEach((step) => {
-                  if (step.name === data.stage) step.status = "running";
+                  if (step.name === data.stage) step.status = "processing";
                   else if (
                     this.evalSteps.findIndex((s) => s.name === data.stage) >
                     this.evalSteps.findIndex((s) => s.name === step.name)
@@ -472,7 +521,7 @@
                   else step.status = "pending";
                 });
 
-                if (data.status === "completed") {
+                if (data.status === "completed" && data.result) {
                   clearInterval(this.pollingTimer);
                   this.evaluationResult = data.result;
                   this.evaluating = false;
@@ -491,9 +540,8 @@
               }
             }, 5000);
           }
-
         };
-      }
+      };
     </script>
   </body>
 </html>

@@ -173,16 +173,15 @@ export async function evaluateDocuments({ candidateId, cvPath, projectPath }: Pa
     );
 
     // 9. Sanitize gemini response
-    const { combinedEvaluation } = combined;
     const stage9Config = STAGE_CONFIG[STAGES[8].name] || {};
     sanitized = await retryStage(
       candidateId,
       8,
       async () => {
-        const sanitized = JSON.parse(combinedEvaluation);
-        sanitized.cv_match_rate = Math.round(Math.min(Math.max(sanitized.cv_match_rate, 0), 1) * 100);
+        const sanitized = combined;
+        sanitized.cv_match_rate = sanitized.cv_match_rate; //Math.round(Math.min(Math.max(sanitized.cv_match_rate, 0), 1) * 100);
         sanitized.cv_feedback = sanitized.cv_feedback.trim();
-        sanitized.project_score = Math.round(Math.min(Math.max(sanitized.project_score, 1), 5) * 100);
+        sanitized.project_score = sanitized.project_score; //Math.round(Math.min(Math.max(sanitized.project_score, 1), 5) * 100);
         sanitized.project_feedback = sanitized.project_feedback.trim();
         sanitized.overall_summary = sanitized.overall_summary.trim();
         return sanitized;
@@ -192,14 +191,15 @@ export async function evaluateDocuments({ candidateId, cvPath, projectPath }: Pa
       stage9Config.timeoutMs || DEFAULT_STAGE_TIMEOUT_MS
     );
 
-    // 10. Save evaluation to firestore
+    // 10. Add sanitized evaluation to firestore
+    console.log("After sanitized", sanitized);
     const sanitizedEvaluation = sanitized;
     const stage10Config = STAGE_CONFIG[STAGES[9].name] || {};
     await retryStage(
       candidateId,
       9,
       async () => {
-        await saveResult(sanitizedEvaluation, candidateId, { cvUrl: null, projectUrl: null });
+        await updateEvaluationStatus(candidateId, {result:sanitizedEvaluation, updated_at: new Date().toISOString()});
       },
       stage10Config.attempts || DEFAULT_STAGE_RETRIES,
       stage10Config.baseDelayMs || DEFAULT_STAGE_BASE_DELAY_MS,

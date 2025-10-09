@@ -1,12 +1,12 @@
-import fs from "fs";
+import fs, { stat } from "fs";
 import path from "path";
 import { v4 as uuidv4 } from "uuid";
 import { createClient } from "@supabase/supabase-js";
-import e from "express";
+import { config } from "@/config/index.js";
 
 const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY! // use SERVICE role on backend only
+  config.supabaseUrl,
+  config.supabaseServiceRoleKey
 );
 
 /**
@@ -76,11 +76,14 @@ export async function generateSignedUploadUrl(
  */
 export async function downloadFileToBuffer(remotePath: string): Promise<Buffer> {
   try {
+    if(!remotePath) throw new Error('Storage file not found: ' + remotePath);
+
     const { data, error } = await supabase.storage
       .from("candidate")
       .download(remotePath);
 
     if (error) throw error;
+    
     const arrayBuffer = await data.arrayBuffer();
     return Buffer.from(arrayBuffer);
   } catch (error) {
@@ -143,46 +146,54 @@ export async function getCandidateData(userId: string): Promise<any | null> {
 
   return { data: data || null, error };
 }
+/** Get all candidates
+ */
+export async function getAllCandidates(): Promise<any[]> {
+  const { data, error } = await supabase
+    .from("candidates")
+    .select("*")
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.error('Error fetching data:', error.message);
+    return [];
+  } else {
+    //console.log('Fetched data:', data);
+    return data;
+  }
+}
 
 /**
  * Save evaluation result
  */
-export async function saveResult(
-  evaluation: any,
-  userId: string,
-  meta?: any
-): Promise<string> {
-  const record = {
-    candidate_id: userId || "anonymous",
-    stage: "completed",
-    status: "completed",
-    progress: 100,
-    result: evaluation,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  };
-
+export async function saveResult(record : any): Promise<string> {
   const { error } = await supabase
     .from("evaluations")
     .upsert(record, { onConflict: "candidate_id" });
 
   if (error) throw error;
-  return userId;
+  return record.candidate_id;
 }
 
 /**
  * Update evaluation status
  */
 export async function updateEvaluationStatus(userId: string, update: any) {
-  const { error } = await supabase
-    .from("evaluations")
-    .update({
-      ...update,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("user_id", userId);
+  try{
+    const { error } = await supabase
+      .from("evaluations")
+      .update({
+        ...update,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("candidate_id", userId);
 
-  if (error) throw error;
+    if (error) throw error;
+    return {status: 'success', "message": `Evaluation status updated successfully for candidate ${userId}`};
+  } catch (error) {
+    console.error("Error updating evaluation status:", error);
+    throw error;
+  }
 }
 
 /**

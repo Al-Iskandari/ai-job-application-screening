@@ -26,7 +26,7 @@ export async function runGeminiChain({ type, text, relevantDocs, rubricDocs }: C
       : buildProjectPrompt(relevantDocs, rubricDocs, text);
   try {
     const result = await client.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-2.5-flash-lite",
       contents: prompt,
       config: {
         temperature: 0.2,
@@ -37,9 +37,9 @@ export async function runGeminiChain({ type, text, relevantDocs, rubricDocs }: C
     const outputText = result.text;
 
     // Validate and parse LLM JSON output
-    const json = validateLLMJson(outputText as string);
+    const { result: json } = validateLLMJson(outputText as string) as { result: any };
 
-    if (type === "cv" && typeof json.cv_score !== "number") {
+    if (type === "cv" && typeof json.cv_match_rate !== "number") {
       throw new Error("Missing cv_score field in model output.");
     }
     if (type === "project" && typeof json.project_score !== "number") {
@@ -59,7 +59,7 @@ export async function geminiSummarize(cvResult: any, projectResult: any) {
   const prompt = buildOverallSummaryPrompt(cvResult, projectResult);
   try {
     const result = await client.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-2.5-flash-lite",
       contents: prompt,
       config: {
         temperature: 0.3,
@@ -68,7 +68,7 @@ export async function geminiSummarize(cvResult: any, projectResult: any) {
     });
     const outputText = result.text;
     // Validate and parse LLM JSON output
-    const json = validateLLMJson(outputText as string);
+    const { result: json } = validateLLMJson(outputText as string) as { result: any };
     if (typeof json.overall_summary !== "string") {
       throw new Error("Missing overall_summary field in model output.");
     }
@@ -115,9 +115,10 @@ function buildCVPrompt(jobDescriptionContext: string, rubricContext: string, cvT
           1. Evaluate the CV strictly according to the Job description and rubric criteria.
           2. Give cv_match_rate based on each rubric parameter weight and scoring guide.
           3. Each scoring guide is from 1 to 5 corresponding to candidate's CV and Job description relevance.
-          4. cv_match_rate is a weighted average from 1 to 5, convert it to 0 to 1 and round it to 2 decimals.
-          5. Provide detailed feedback explaining strengths, weaknesses, and improvement areas.
-          6. Return the result **only in JSON** format below.
+          4. cv_match_rate must be strictly a number, exclude any text, null, or other non-numeric values.
+          5. cv_match_rate is a weighted average from 1 to 5, convert it between 0 to 1 and round it to 2 decimals.
+          6. Provide detailed feedback explaining strengths, weaknesses, and improvement areas.
+          7. Return the result **only in JSON** format below.
 
           ### Example JSON Output:
           {
@@ -148,9 +149,10 @@ function buildProjectPrompt(caseStudyContext: string, rubricContext: string, pro
           1. Assess the report strictly according to the case study brief and rubric criteria.
           2. Give project_score based on each rubric parameter weight and scoring guide.
           3. Each scoring guide is from 1 to 5 corresponding to how well the project meets the case study requirements.
-          4. project_score is a weighted average from 1 to 5 and round it to 2 decimals.
-          5. Provide detailed feedback explaining strengths, weaknesses, and improvement areas.
-          6. Return the result **only in JSON** format below.
+          4. project_score must be strictly a number, exclude any text, null, or other non-numeric values.
+          5. project_score is a weighted average from 1 to 5 and round it to 2 decimals.
+          6. Provide detailed feedback explaining strengths, weaknesses, and improvement areas.
+          7. Return the result **only in JSON** format below.
 
           ### Example JSON Output:
           {
