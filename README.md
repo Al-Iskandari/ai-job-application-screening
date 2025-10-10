@@ -160,11 +160,10 @@ The system gracefully handles:
 
 
 ## 🧩 Project Structure
-
+```csharp
 docker-compose.yml
 Dockerfile
 package.json
-package-lock.json
 tsconfig.json
 smartmenu-63146-aa95fca1f3f7.json
 src/
@@ -196,6 +195,7 @@ public/
 │   ├── PipelineStagesHandler.ts
 │   └── loadSystemDocs.ts
 └── index.html         # Frontend UI (Alpine.js + Tailwind)
+```
 
 ## 🧾 License
 
