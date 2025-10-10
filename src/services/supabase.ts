@@ -3,6 +3,7 @@ import path from "path";
 import { v4 as uuidv4 } from "uuid";
 import { createClient } from "@supabase/supabase-js";
 import { config } from "@/config/index.js";
+import e from "express";
 
 const supabase = createClient(
   config.supabaseUrl,
@@ -91,7 +92,7 @@ export async function downloadFileToBuffer(remotePath: string): Promise<Buffer> 
       if (error?.message.toLowerCase().includes("limit")) {
         throw new Error("SUPABASE_QUOTA_EXCEEDED");
       }
-      throw new Error("SUPABASE_DOWNLOAD_FAILED");
+      throw new Error(error?.message || "SUPABASE_DOWNLOAD_FAILED");
     }
     
     const arrayBuffer = await data.arrayBuffer();
@@ -125,7 +126,7 @@ export async function saveFileMetadata(
     if (insertError?.message.toLowerCase().includes("limit")) {
       throw new Error("SUPABASE_QUOTA_EXCEEDED");
     }
-    throw new Error("SUPABASE_DOWNLOAD_FAILED");
+    throw new Error(insertError?.message || "SUPABASE_INSERT_FAILED");
   }
 
   return {
@@ -147,7 +148,7 @@ export async function updateFileMetadata(candidateId: string, updateData: any): 
       if (error?.message.toLowerCase().includes("limit")) {
         throw new Error("SUPABASE_QUOTA_EXCEEDED");
       }
-      throw new Error("SUPABASE_DOWNLOAD_FAILED");
+      throw new Error(error?.message || "SUPABASE_UPDATE_FAILED");
     }
     return {"message": `File metadata updated successfully for candidate ${candidateId}`};
   } catch (error) {
@@ -164,13 +165,13 @@ export async function getCandidateData(userId: string): Promise<any | null> {
     .from("candidates")
     .select("*")
     .eq("candidate_id", userId)
-    .single();
+    .maybeSingle();
 
-  if (error || !data) {
+  if (error) {
     if (error?.message.toLowerCase().includes("limit")) {
       throw new Error("SUPABASE_QUOTA_EXCEEDED");
     }
-    throw new Error("SUPABASE_DOWNLOAD_FAILED");
+    throw new Error(error?.message || "SUPABASE_RETRIEVE_FAILED");
   }
 
   return { data: data || null, error };
@@ -188,7 +189,7 @@ export async function getAllCandidates(): Promise<any[]> {
       if (error?.message.toLowerCase().includes("limit")) {
         throw new Error("SUPABASE_QUOTA_EXCEEDED");
       }
-      throw new Error("SUPABASE_DOWNLOAD_FAILED");
+      throw new Error(error?.message || "SUPABASE_RETRIEVE_FAILED");
     } 
     
     return data;  
@@ -210,7 +211,7 @@ export async function saveResult(record : any): Promise<string> {
       if (error?.message.toLowerCase().includes("limit")) {
         throw new Error("SUPABASE_QUOTA_EXCEEDED");
       }
-      throw new Error("SUPABASE_DOWNLOAD_FAILED");
+      throw new Error(error?.message || "SUPABASE_UPSERT_FAILED");
     }
     return record.candidate_id;
   } catch (error) {
@@ -235,7 +236,7 @@ export async function updateEvaluationStatus(userId: string, update: any) {
       if (error?.message.toLowerCase().includes("limit")) {
         throw new Error("SUPABASE_QUOTA_EXCEEDED");
       }
-      throw new Error("SUPABASE_DOWNLOAD_FAILED");
+      throw new Error(error?.message || "SUPABASE_UPDATE_FAILED");
     }
 
     return {status: 'success', "message": `Evaluation status updated successfully for candidate ${userId}`};
@@ -260,7 +261,7 @@ export async function getResult(userId: string): Promise<any | null> {
       if (error?.message.toLowerCase().includes("limit")) {
         throw new Error("SUPABASE_QUOTA_EXCEEDED");
       }
-      throw new Error("SUPABASE_DOWNLOAD_FAILED");
+      throw new Error(error?.message || "SUPABASE_RETRIEVE_FAILED");
     }
 
     return { data: data || null, error}
@@ -290,7 +291,7 @@ export async function saveSystemDocMeta(
     if (error?.message.toLowerCase().includes("limit")) {
       throw new Error("SUPABASE_QUOTA_EXCEEDED");
     }
-    throw new Error("SUPABASE_DOWNLOAD_FAILED");
+    throw new Error(error?.message || "SUPABASE_INSERT_FAILED");
   }
 
   return { success: true, message: "System document metadata saved successfully." };
