@@ -31,9 +31,13 @@ export async function queryZilliz(embedding: FloatVector, docTypes: string[]) {
       expr: `doc_type in ["${docTypes.join('","')}"]`,
       output_fields: ["doc_type", "title", "text"]
     });
+    if (results.status.error_code === "RateLimitExceeded") {
+      throw new Error("ZILLIZ_QUOTA_EXCEEDED");
+    }
     return results.results;
   } catch (err) {
     console.error("Error querying Zilliz:", err);
+    throw err;
   }
 }
 
@@ -53,6 +57,10 @@ export async function insertZilliz(embedding: FloatVector, docType: string, titl
       collection_name: "system_docs",
       data: data,
     });
+
+    if (results.status.error_code === "RateLimitExceeded") {
+      throw new Error("ZILLIZ_QUOTA_EXCEEDED");
+    }
     
     console.log(`Inserted chunk into Zilliz: ${JSON.stringify(results)} record(s)`);
 
@@ -70,6 +78,7 @@ export async function insertZilliz(embedding: FloatVector, docType: string, titl
     await client.closeConnection();*/
   } catch (err) {
     console.error("Error inserting into Zilliz:", err);
+    throw err;
   }
 }
 

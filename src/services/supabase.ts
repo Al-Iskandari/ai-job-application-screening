@@ -30,7 +30,12 @@ export async function uploadToSupabase(
         upsert: true,
       });
 
-    if (uploadError) throw uploadError;
+    if (uploadError) {
+      if (uploadError.message.toLowerCase().includes("limit")) {
+        throw new Error("SUPABASE_QUOTA_EXCEEDED");
+      }
+      throw new Error("SUPABASE_UPLOAD_FAILED");
+    }
 
     // Generate public or signed URL
     const { data: publicData } = supabase.storage
@@ -82,7 +87,12 @@ export async function downloadFileToBuffer(remotePath: string): Promise<Buffer> 
       .from("candidate")
       .download(remotePath);
 
-    if (error) throw error;
+    if (error || !data) {
+      if (error?.message.toLowerCase().includes("limit")) {
+        throw new Error("SUPABASE_QUOTA_EXCEEDED");
+      }
+      throw new Error("SUPABASE_DOWNLOAD_FAILED");
+    }
     
     const arrayBuffer = await data.arrayBuffer();
     return Buffer.from(arrayBuffer);
@@ -110,7 +120,14 @@ export async function saveFileMetadata(
     };
 
   const { error: insertError } = await supabase.from("candidates").insert([data]);
-  if (insertError) throw insertError;
+
+  if (insertError || !data) {
+    if (insertError?.message.toLowerCase().includes("limit")) {
+      throw new Error("SUPABASE_QUOTA_EXCEEDED");
+    }
+    throw new Error("SUPABASE_DOWNLOAD_FAILED");
+  }
+
   return {
     success: true,
     message: `Inserted new candidate ${candidateId} with ${fileCategory} file.`,
@@ -126,11 +143,16 @@ export async function updateFileMetadata(candidateId: string, updateData: any): 
       .update(updateData)
       .eq("candidate_id", candidateId);
 
-    if (error) throw error;
+    if (error) {
+      if (error?.message.toLowerCase().includes("limit")) {
+        throw new Error("SUPABASE_QUOTA_EXCEEDED");
+      }
+      throw new Error("SUPABASE_DOWNLOAD_FAILED");
+    }
     return {"message": `File metadata updated successfully for candidate ${candidateId}`};
   } catch (error) {
     console.error("Error updating file metadata:", error);
-    return Promise.reject(error);
+    throw error;
   }
 } 
 
@@ -144,22 +166,34 @@ export async function getCandidateData(userId: string): Promise<any | null> {
     .eq("candidate_id", userId)
     .single();
 
+  if (error || !data) {
+    if (error?.message.toLowerCase().includes("limit")) {
+      throw new Error("SUPABASE_QUOTA_EXCEEDED");
+    }
+    throw new Error("SUPABASE_DOWNLOAD_FAILED");
+  }
+
   return { data: data || null, error };
 }
 /** Get all candidates
  */
 export async function getAllCandidates(): Promise<any[]> {
-  const { data, error } = await supabase
-    .from("candidates")
-    .select("*")
-    .order('created_at', { ascending: false });
+  try {
+    const { data, error } = await supabase
+      .from("candidates")
+      .select("*")
+      .order('created_at', { ascending: false });
 
-  if (error) {
-    console.error('Error fetching data:', error.message);
-    return [];
-  } else {
-    //console.log('Fetched data:', data);
-    return data;
+    if (error) {
+      if (error?.message.toLowerCase().includes("limit")) {
+        throw new Error("SUPABASE_QUOTA_EXCEEDED");
+      }
+      throw new Error("SUPABASE_DOWNLOAD_FAILED");
+    } 
+    
+    return data;  
+  } catch (error) {
+    throw error;
   }
 }
 
@@ -167,12 +201,21 @@ export async function getAllCandidates(): Promise<any[]> {
  * Save evaluation result
  */
 export async function saveResult(record : any): Promise<string> {
-  const { error } = await supabase
-    .from("evaluations")
-    .upsert(record, { onConflict: "candidate_id" });
+  try {
+    const { error } = await supabase
+      .from("evaluations")
+      .upsert(record, { onConflict: "candidate_id" });
 
-  if (error) throw error;
-  return record.candidate_id;
+    if (error){
+      if (error?.message.toLowerCase().includes("limit")) {
+        throw new Error("SUPABASE_QUOTA_EXCEEDED");
+      }
+      throw new Error("SUPABASE_DOWNLOAD_FAILED");
+    }
+    return record.candidate_id;
+  } catch (error) {
+    throw error;
+  }
 }
 
 /**
@@ -188,7 +231,13 @@ export async function updateEvaluationStatus(userId: string, update: any) {
       })
       .eq("candidate_id", userId);
 
-    if (error) throw error;
+    if (error) {
+      if (error?.message.toLowerCase().includes("limit")) {
+        throw new Error("SUPABASE_QUOTA_EXCEEDED");
+      }
+      throw new Error("SUPABASE_DOWNLOAD_FAILED");
+    }
+
     return {status: 'success', "message": `Evaluation status updated successfully for candidate ${userId}`};
   } catch (error) {
     console.error("Error updating evaluation status:", error);
@@ -200,14 +249,25 @@ export async function updateEvaluationStatus(userId: string, update: any) {
  * Get result by ID
  */
 export async function getResult(userId: string): Promise<any | null> {
-  const { data, error } = await supabase
-    .from("evaluations")
-    .select("*")
-    .eq("candidate_id", userId)
-    .single();
+  try {
+    const { data, error } = await supabase
+      .from("evaluations")
+      .select("*")
+      .eq("candidate_id", userId)
+      .single();
 
-  if (error && error.code !== "PGRST116") throw error;
-  return { data: data || null, error}
+    if (error && error.code !== "PGRST116"){
+      if (error?.message.toLowerCase().includes("limit")) {
+        throw new Error("SUPABASE_QUOTA_EXCEEDED");
+      }
+      throw new Error("SUPABASE_DOWNLOAD_FAILED");
+    }
+
+    return { data: data || null, error}
+
+  }catch (error) {
+    throw error;
+  }
 }
 
 /**
@@ -218,6 +278,7 @@ export async function saveSystemDocMeta(
   title: string,
   path: string,
 ) {
+  try {
   const { error } = await supabase.from("system_docs_meta").insert({
     doc_type: type,
     title,
@@ -225,5 +286,15 @@ export async function saveSystemDocMeta(
     last_updated: new Date().toISOString(),
   });
 
-  if (error) throw error;
+  if (error) {
+    if (error?.message.toLowerCase().includes("limit")) {
+      throw new Error("SUPABASE_QUOTA_EXCEEDED");
+    }
+    throw new Error("SUPABASE_DOWNLOAD_FAILED");
+  }
+
+  return { success: true, message: "System document metadata saved successfully." };
+  } catch (error) {
+    throw error;
+  }
 }

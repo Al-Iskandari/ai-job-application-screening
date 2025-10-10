@@ -1,16 +1,11 @@
 import { Request } from "express";
+import fs from 'fs';
 
 export function validateUploadRequest(req: Request) {
-  const cv = (req.files as { [fieldname: string]: Express.Multer.File[]; })?.["cv"]?.[0];
-  const project = (req.files as { [fieldname: string]: Express.Multer.File[]; })?.["project"]?.[0];
-  if (!cv || !project) throw new Error("CV and project report are required.");
-}
-
-export function validateFileType(file: Express.Multer.File) {
-  const allowed = ["application/pdf"];
-  if (!allowed.includes(file.mimetype)) {
-    throw new Error(`Invalid file type for ${file.originalname}`);
-  }
+  const { fileSize, fileType } = req.body;
+  if (!fileType.includes("pdf"))  throw new Error("INVALID_FILE_TYPE");
+  if (fileSize=== 0) throw new Error("EMPTY_FILE");
+  if (fileSize > 10 * 1024 * 1024) throw new Error("LIMIT_FILE_SIZE");
 }
 
 export function validatePdfBuffer(buf: Buffer) {

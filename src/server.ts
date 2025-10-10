@@ -1,10 +1,11 @@
 import express from 'express';
-import authRouter from '@/api/authRoute.js';
 import router from '@/api/routes.js';
 import { config } from '@/config/index.js';
 import bodyParser from 'body-parser';
 import path, { dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { error } from 'console';
+import { errorHandler } from './api/middleware/errorHandler.js';
 
 const app = express();
 app.use(bodyParser.json({ limit: '5mb' }));
@@ -23,7 +24,11 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, '../public', 'index.html'));
 });
 
+// Auth routes
 app.use('/api', router);
+
+// Error handler
+app.use(errorHandler);
 
 
 // Start the server

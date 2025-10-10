@@ -1,12 +1,13 @@
 import express from 'express';
 import multer from 'multer';
-import { firebaseAuth, AuthRequest } from '@/api/middleware.js';
+import { firebaseAuth, AuthRequest } from '@/api/middleware/auth.js';
 import { generateSignedUploadUrl, getAllCandidates, getCandidateData, saveFileMetadata, saveResult, getResult, updateFileMetadata } from '@/services/supabase.js';
 import { evaluationQueue } from '@/services/queue.js';
 import { evaluateDocuments } from '@/services/evaluator.js';
 import { v4 as uuidv4 } from 'uuid';
 import { config } from '@/config/index.js';
-import { stat } from 'node:fs';
+import { validateUploadRequest } from '@/utils/validators.js';
+import { error } from 'node:console';
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: config.maxUploadBytes } });
@@ -17,10 +18,12 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: con
  * generate signed URLs for upload for backend minimum bandwidth
  * multipart form-data with cv and report files
  */
-router.post('/upload', firebaseAuth, async (req: AuthRequest, res) => {
+router.post('/upload', firebaseAuth, async (req: AuthRequest, res, next) => {
   try {
 
-    const { fileName, fileType, candidateId } = req.body;
+    const { fileName, fileSize, filePath, fileType, candidateId } = req.body;
+
+    validateUploadRequest(req);    
 
     // Reuse candidate if provided
     const id = candidateId || uuidv4(); // Automatically generate candidateId if not provided
@@ -35,8 +38,7 @@ router.post('/upload', firebaseAuth, async (req: AuthRequest, res) => {
     });
     
   } catch (err) {
-    console.error('upload error', err);
-    return res.status(500).json({ error: 'Upload failed' });
+    next(err);
   }
 });
 
@@ -45,7 +47,7 @@ router.post('/upload', firebaseAuth, async (req: AuthRequest, res) => {
  * body: { storagePath, candidateId, fileType } -> confirm upload
  */
 
-router.post("/confirm-upload", firebaseAuth, async (req: AuthRequest, res) => {
+router.post("/confirm-upload", firebaseAuth, async (req: AuthRequest, res, next) => {
   try {
     const { candidateId, storagePath, fileCategory } = req.body;
     if (!candidateId || !storagePath || !fileCategory)
@@ -82,8 +84,7 @@ router.post("/confirm-upload", firebaseAuth, async (req: AuthRequest, res) => {
       
     }
   } catch (err: any) {
-    console.error("Confirm-upload error:", err);
-    res.status(500).json({ success: false, message: err.message });
+    next(err);
   }
 });
 
@@ -91,19 +92,19 @@ router.post("/confirm-upload", firebaseAuth, async (req: AuthRequest, res) => {
  * POST /api/evaluate
  * body: { candidateId } -> trigger re-evaluation (enqueue or run immediately)
  */
-router.post('/evaluate', firebaseAuth, express.json(), async (req: AuthRequest, res) => {
+router.post('/evaluate', firebaseAuth, express.json(), async (req: AuthRequest, res, next) => {
   try {
     const { jobTitle, candidateId, runNow } = req.body;
-    if (!candidateId) return res.status(400).json({ error: 'candidateId is required' });
+    if (!candidateId) throw error('candidateId is required');
 
     const { data: docs, error: selectError } = await getCandidateData(candidateId);
-    if (selectError) return res.status(404).json({ error: `Candidate ${candidateId} not found` });
+    if (selectError) throw selectError;
 
     const cvPath = docs.cv_path
     const reportPath = docs.project_path;
-    if (!cvPath || !reportPath) return res.status(400).json({ error: 'cv or project report missing for candidate' });
+    if (!cvPath || !reportPath) throw error('cv or project report missing for candidate');
     
-    if (!jobTitle) return res.status(400).json({ error: 'job_title is required' });
+    if (!jobTitle) throw error('Job title is required');
 
     const initEvaluation = {
         candidate_id: candidateId,
@@ -122,7 +123,7 @@ router.post('/evaluate', firebaseAuth, express.json(), async (req: AuthRequest, 
       // attempt to run evaluation code inline once
       await evaluateDocuments({ candidateId, cvPath: cvPath, projectPath: reportPath })
         .then(() => console.log('runNow completed for', candidateId))
-        .catch((e: any) => console.error('runNow error', e));
+        .catch((e: any) => { throw error(e) });
       return res.json({ candidateId, message: 'Triggered immediate evaluation (running in background)' });
     } else {
       // enqueue normally
@@ -135,20 +136,20 @@ router.post('/evaluate', firebaseAuth, express.json(), async (req: AuthRequest, 
     }
   } catch (err) {
     console.error('evaluate endpoint error', err);
-    return res.status(500).json({ error: 'Server error' });
+    next(err);
   }
 });
 
 /** GET /api/candidates
  * Returns list of all candidates
  */
-router.get('/candidates', firebaseAuth, async (req: AuthRequest, res) => {
+router.get('/candidates', firebaseAuth, async (req: AuthRequest, res, next) => {
   try {
     const candidates = await getAllCandidates();
     return res.json(candidates);
   } catch (err) {
     console.error('candidates endpoint error', err);
-    return res.status(500).json({ error: 'Server error' });
+    next(err);
   }
 })
 
@@ -156,7 +157,7 @@ router.get('/candidates', firebaseAuth, async (req: AuthRequest, res) => {
  * GET /api/result/:id
  * Returns the evaluation db doc
  */
-router.get('/result/:id', firebaseAuth, async (req: AuthRequest, res) => {
+router.get('/result/:id', firebaseAuth, async (req: AuthRequest, res, next) => {
   try {
     const userId = req.params.id;
     const {data: existing, error: selectError} = await getResult(userId);
@@ -164,15 +165,8 @@ router.get('/result/:id', firebaseAuth, async (req: AuthRequest, res) => {
     return res.json(existing);
   } catch (err) {
     console.error('result endpoint error', err);
-    return res.status(500).json({ error: 'Server error' });
+    next(err);
   }
-});
-
-/** GET /api/config/google-client-id
- * Returns the Google OAuth Client ID for frontend use
- */
-router.get("/google-client-id", (req, res) => {
-  res.json({ client_id: config.googleOauthClientId });
 });
 
 

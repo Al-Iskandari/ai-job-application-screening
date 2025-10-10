@@ -334,6 +334,12 @@
           // === Your existing logic below ===
           selectFile(e, type) {
             this.files[type] = e.target.files[0];
+
+            const file = e.target.files[0];
+            if (!file) {
+              this.error = "Please select a file.";
+              return;
+            }
           },
 
           async uploadFiles() {
@@ -341,6 +347,11 @@
             this.uploading = true;
             this.message = "";
             let candidateId = this.candidateId || null;
+
+            if (!navigator.onLine) {
+              this.error = "You are offline. Please reconnect to upload files.";
+              return;
+            }
             
             try {
               for (const [type, file] of Object.entries(this.files)) {
@@ -355,6 +366,8 @@
                   },
                   body: JSON.stringify({
                     fileName: file.name,
+                    fileSize: file.size,
+                    filePath: file.path,
                     fileType: file.type,
                     candidateId, // Pass existing candidateId if available
                   }),

@@ -33,6 +33,10 @@ export async function runGeminiChain({ type, text, relevantDocs, rubricDocs }: C
         responseMimeType: "application/json",
       }
     });
+
+    if (!result) {
+      throw new Error("Failed to run Gemini Chain");
+    }
     
     const outputText = result.text;
 
@@ -50,7 +54,7 @@ export async function runGeminiChain({ type, text, relevantDocs, rubricDocs }: C
     
   } catch (error) {
     console.error("Error running Gemini Chain:", error);
-    return "";
+    throw error;
   }
 }
 
@@ -66,6 +70,11 @@ export async function geminiSummarize(cvResult: any, projectResult: any) {
         responseMimeType: "application/json",
       }
     });
+    
+    if (!result) {
+      throw new Error("Failed to run Gemini Summarization");
+    }
+
     const outputText = result.text;
     // Validate and parse LLM JSON output
     const { result: json } = validateLLMJson(outputText as string) as { result: any };
@@ -75,7 +84,7 @@ export async function geminiSummarize(cvResult: any, projectResult: any) {
     return json;
   } catch (error) {
     console.error("Error running Gemini Summarization:", error);
-    return "";
+    throw error;
   }
 }
 
@@ -89,10 +98,15 @@ export async function getEmbedding(text: string): Promise<number[]> {
         outputDimensionality: 768,
       }
     });
+
+    if (!result) {
+      throw new Error("Failed to get embedding");
+    }
+
     return result?.embeddings?.[0].values || [];
   } catch (error) {
     console.error("Error getting embedding:", error);
-    return [];
+    throw error;
   }
 }
 

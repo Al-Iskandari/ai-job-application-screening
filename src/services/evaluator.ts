@@ -5,7 +5,7 @@ import { downloadFileToBuffer, updateEvaluationStatus, saveResult } from "@/serv
 import { extractTextFromPdfBuffer } from "@/utils/pdf.js";
 import { setStage,STAGES, STAGE_CONFIG } from "@/utils/PipelineStagesHandler.js";
 import { config } from "@/config/index.js";
-import { retryStage } from "@/utils/errorHandler.js";
+import { retryStage } from "@/utils/resilienceHelper.js";
 
 const { DEFAULT_STAGE_RETRIES, DEFAULT_STAGE_BASE_DELAY_MS, DEFAULT_STAGE_TIMEOUT_MS } = config;
 
