@@ -4,13 +4,34 @@
  */
 
 import { Worker, Queue } from 'bullmq';
-import { connectionObj } from '@/services/queue.js';
+import { Redis } from 'ioredis';
 import { evaluateDocuments } from '@/services/evaluator.js';
 import { updateEvaluationStatus } from '@/services/supabase.js';
 import { config } from '@/config/index.js';
 
+// Redis connection setup
+let connection: Redis;
+
+if (config.redisUrl) {
+  // Production: Use single connection URL (e.g., rediss://:password@host:port)
+  connection = new Redis(config.redisUrl, {
+    tls: config.nodeEnv === "production" ? {} : undefined,
+    maxRetriesPerRequest: null,
+    enableReadyCheck: false,
+  });
+} else {
+  // Development: Use standard host/port/password config
+  connection = new Redis({
+    host: config.redisHost || "127.0.0.1",
+    port: config.redisPort || 6379,
+    password: config.redisPassword || undefined,
+    maxRetriesPerRequest: null,
+    enableReadyCheck: false,
+  });
+}
+
 // set up scheduler (required for repeatable jobs / delayed)
-new Queue(config.queueName, { connection: connectionObj });
+new Queue(config.queueName, { connection, });
 
 const worker = new Worker(
   config.queueName,
@@ -33,7 +54,7 @@ const worker = new Worker(
     return error;
   }
   },
-  { connection: connectionObj, concurrency: 2 }
+  { connection, concurrency: 2 }
 );
 
 worker.on('completed', (job) => {
@@ -48,6 +69,7 @@ worker.on('completed', (job) => {
     console.error(error);
   }
 });
+
 worker.on('failed', (job, err) => {
   try{
     updateEvaluationStatus(job?.data.candidateId, {
@@ -59,5 +81,13 @@ worker.on('failed', (job, err) => {
   } catch (error) {
     console.error(error);
   }
+});
+
+// Graceful shutdown (for Docker / ECS / etc)
+process.on("SIGINT", async () => {
+  console.log("[Worker] Shutting down gracefully...");
+  await worker.close();
+  await connection.quit();
+  process.exit(0);
 });
 console.log(`Worker started (queue=${config.queueName})`);

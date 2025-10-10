@@ -160,10 +160,11 @@ The system gracefully handles:
 
 
 ## 🧩 Project Structure
-```csharp
+```bash
 docker-compose.yml
 Dockerfile
 package.json
+package-lock.json
 tsconfig.json
 smartmenu-63146-aa95fca1f3f7.json
 src/
@@ -192,8 +193,10 @@ src/
 ├── worker.ts           # Background job processor
 public/
 ├── data/
-│   ├── PipelineStagesHandler.ts
-│   └── loadSystemDocs.ts
+│   ├── case_study.pdf
+│   ├── job_description.pdf
+│   ├── rubric_cv.pdf
+│   └── rubric_project.pdf
 └── index.html         # Frontend UI (Alpine.js + Tailwind)
 ```
 

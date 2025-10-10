@@ -39,11 +39,10 @@ Thumbs.db
 .idea/
 
 # Docker
-docker-compose.yml
 docker-compose.override.yml
-docker-compose.*.yml
-Dockerfile
 docker-compose.*.log
+devDockerfile.txt
+docker-compose-dev.txt
 .dockerignore
 
 # Docker volumes / runtime state
