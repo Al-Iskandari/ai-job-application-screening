@@ -160,46 +160,42 @@ The system gracefully handles:
 
 
 ## 🧩 Project Structure
-.
-├── docker-compose.yml
-├── Dockerfile
-├── package.json
-├── package-lock.json
-├── public
-│   ├── data
-│   │   ├── case_study.pdf
-│   │   ├── job_description.pdf
-│   │   ├── rubric_cv.pdf
-│   │   └── rubric_project.pdf
-│   └── index.html
-├── smartmenu-63146-aa95fca1f3f7.json
-├── src
-│   ├── api
-│   │   ├── middleware
-│   │   │   ├── auth.ts
-│   │   │   └── errorHandler.ts
-│   │   └── routes.ts
-│   ├── config
-│   │   └── index.ts
-│   ├── script
-│   │   └── loadSystemDocs.ts
-│   ├── server.ts
-│   ├── services
-│   │   ├── evaluator.ts
-│   │   ├── firebaseOld.ts
-│   │   ├── geminiClient.ts
-│   │   ├── queue.ts
-│   │   ├── supabase.ts
-│   │   └── zillizClient.ts
-│   ├── types
-│   │   └── index.ts
-│   ├── utils
-│   │   ├── pdf.ts
-│   │   ├── PipelineStagesHandler.ts
-│   │   ├── resilienceHelper.ts
-│   │   └── validators.ts
-│   └── worker.ts
-└── tsconfig.json
+
+docker-compose.yml
+Dockerfile
+package.json
+package-lock.json
+tsconfig.json
+smartmenu-63146-aa95fca1f3f7.json
+src/
+├── api/
+│   ├── middleware/
+│   │   ├── auth.ts
+│   │   └── errorHandler.ts
+|   └── routes.ts
+├── config/
+│   └── index.ts
+├── services/
+│   ├── evaluator.ts
+│   ├── firebaseOld.ts
+│   ├── geminiClient.ts
+│   ├── queue.ts
+│   ├── supabase.ts
+│   └── zillizClient.ts
+├── utils/
+│   ├── pdf.ts
+│   ├── PipelineStagesHandler.ts
+│   ├── resilienceHelper.ts
+│   ├── validators.ts
+├── script/
+│   └── loadSystemDocs.ts
+├── server.ts           # Main Express server
+├── worker.ts           # Background job processor
+public/
+├── data/
+│   ├── PipelineStagesHandler.ts
+│   └── loadSystemDocs.ts
+└── index.html         # Frontend UI (Alpine.js + Tailwind)
 
 ## 🧾 License
 

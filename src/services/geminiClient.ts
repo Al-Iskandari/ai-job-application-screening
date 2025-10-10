@@ -26,7 +26,7 @@ export async function runGeminiChain({ type, text, relevantDocs, rubricDocs }: C
       : buildProjectPrompt(relevantDocs, rubricDocs, text);
   try {
     const result = await client.models.generateContent({
-      model: "gemini-2.5-flash-lite",
+      model: "gemini-2.5-flash",
       contents: prompt,
       config: {
         temperature: 0.2,
@@ -63,7 +63,7 @@ export async function geminiSummarize(cvResult: any, projectResult: any) {
   const prompt = buildOverallSummaryPrompt(cvResult, projectResult);
   try {
     const result = await client.models.generateContent({
-      model: "gemini-2.5-flash-lite",
+      model: "gemini-2.5-flash",
       contents: prompt,
       config: {
         temperature: 0.3,
