@@ -34,6 +34,6 @@ app.get("/healthz", (_, res) => res.status(200).send("OK"));
 app.use(errorHandler);
 
 // Start the server
-app.listen(config.port, () => {
+app.listen(config.port, "0.0.0.0",() => {
   console.log(`Server listening on port ${config.port}`);
 });
