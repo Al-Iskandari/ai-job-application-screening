@@ -25,6 +25,7 @@ lib/
 .env
 .env.*.local
 .env.local
+.env.example
 .env.production
 .env.development
 .local

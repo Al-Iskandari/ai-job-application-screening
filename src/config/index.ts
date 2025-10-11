@@ -11,6 +11,8 @@ export const config = {
   firebaseServiceAccountPath: process.env.FIREBASE_SERVICE_ACCOUNT_JSON_PATH || '',
   firebaseStorageBucket: process.env.FIREBASE_STORAGE_BUCKET || '',
   firebaseProjectId: process.env.FIREBASE_PROJECT_ID || '',
+  firebaseClientEmail: process.env.FIREBASE_CLIENT_EMAIL || '',
+  firebasePrivateKey: process.env.FIREBASE_PRIVATE_KEY || '',
 
   // Supabase
   supabaseUrl: process.env.SUPABASE_URL || '',

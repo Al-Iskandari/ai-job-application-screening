@@ -5,7 +5,11 @@ import { config } from '@/config/index.js';
 // Initialize Firebase Admin if not already
 if (!admin.apps.length) {
   admin.initializeApp({
-    credential: admin.credential.cert(config.firebaseServiceAccountPath),
+    credential: admin.credential.cert({
+      projectId: config.firebaseProjectId,
+      clientEmail: config.firebaseClientEmail,
+      privateKey: config.firebasePrivateKey?.replace(/\\n/g, '\n'),
+    }),
   });
 }
 

@@ -46,4 +46,4 @@ HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:4000/health || exit 1
 
 # ---- Final Run Stage ----
-CMD ["sh", "-c", "node dist/server.js & node dist/worker.js && wait"]
+CMD ["npx", "concurrently", "\"node dist/server.js\"", "\"node dist/worker.js\""]

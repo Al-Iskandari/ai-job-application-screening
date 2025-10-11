@@ -26,7 +26,7 @@ services:
     image: aijobscanner:v1.0
     container_name: app_server
     command: npm start
-    env_file: .env.production
+    env_file: .env
     environment:
       NODE_ENV: production
       REDIS_URL: ${REDIS_URL}
@@ -54,7 +54,7 @@ services:
     image: aijobscanner:v1.0
     container_name: app_worker
     command: npm run start:worker
-    env_file: .env.production
+    env_file: .env
     environment:
       NODE_ENV: production
       REDIS_URL: ${REDIS_URL}

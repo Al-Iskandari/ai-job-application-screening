@@ -1,5 +1,4 @@
 import express from 'express';
-import multer from 'multer';
 import { firebaseAuth, AuthRequest } from '@/api/middleware/auth.js';
 import { generateSignedUploadUrl, getAllCandidates, getCandidateData, saveFileMetadata, saveResult, getResult, updateFileMetadata } from '@/services/supabase.js';
 import { evaluationQueue } from '@/services/queue.js';
@@ -10,9 +9,6 @@ import { validateUploadRequest } from '@/utils/validators.js';
 import { error } from 'node:console';
 
 const router = express.Router();
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: config.maxUploadBytes } });
-
-
 /**
  * POST /api/upload
  * generate signed URLs for upload for backend minimum bandwidth
