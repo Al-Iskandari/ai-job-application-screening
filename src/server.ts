@@ -27,9 +27,11 @@ app.get('/', (req, res) => {
 // Auth routes
 app.use('/api', router);
 
+// Health check
+app.get("/healthz", (_, res) => res.status(200).send("OK"));
+
 // Error handler
 app.use(errorHandler);
-
 
 // Start the server
 app.listen(config.port, () => {

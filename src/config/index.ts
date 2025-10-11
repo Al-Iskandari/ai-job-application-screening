@@ -1,6 +1,10 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
+if (process.env.NODE_ENV === 'development') {
+   dotenv.config({ path: "/etc/secrets/.env" });
+}
+
 export const config = {
   port: Number(process.env.PORT || 4000),
 

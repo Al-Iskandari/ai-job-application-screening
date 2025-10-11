@@ -9,10 +9,10 @@ import { config } from "@/config/index.js";
 
 let connection: Redis;
 
-if (process.env.REDIS_URL) {
+if (config.redisUrl) {
   // Production: Use full connection URL (TLS supported)
-  connection = new Redis(process.env.REDIS_URL, {
-    tls: process.env.NODE_ENV === "production" ? {} : undefined,
+  connection = new Redis(config.redisUrl, {
+    tls: config.nodeEnv === "production" ? {} : undefined,
     maxRetriesPerRequest: null,
     enableReadyCheck: false,
   });

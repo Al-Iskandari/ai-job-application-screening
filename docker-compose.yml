@@ -15,6 +15,8 @@ services:
     restart: always
     networks:
       - app_network
+    ports:
+      - "6379:6379"
 
   # Application Server (Express + API)
   app:

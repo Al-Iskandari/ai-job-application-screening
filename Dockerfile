@@ -35,6 +35,7 @@ COPY --from=builder /usr/src/app/public ./public
 RUN npm ci --omit=dev
 
 # Set environment to production
+ENV PATH="/etc/secrets:${PATH}"
 ENV NODE_ENV=production
 ENV PORT=4000
 
