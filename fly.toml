@@ -1,18 +1,23 @@
+# fly.toml file for app: ai-job-application-screening
 app = "ai-job-application-screening"
-primary_region = "sin"
-
+primary_region = "sin" # use your closest region, e.g. "sin" (Singapore), "hkg", "fra", etc.
 kill_signal = "SIGINT"
-kill_timeout = 5
+kill_timeout = "5s"
 
 [build]
-  dockerfile = "Dockerfile"
+  dockerfile = "./Dockerfile"
 
 [env]
   NODE_ENV = "production"
   PORT = "4000"
+  # Your production env variables here (safe ones only)
+  # REDIS_URL will be read from Fly secrets, not stored here
+  # Example:
+  # API_URL = "https://ai-job-application-screening.fly.dev"
 
 [[services]]
   internal_port = 4000
+  processes = ["app"]
   protocol = "tcp"
 
   [services.concurrency]
@@ -29,7 +34,7 @@ kill_timeout = 5
     port = 443
 
   [[services.tcp_checks]]
-    interval = "15s"
+    interval = "10s"
     timeout = "2s"
-    grace_period = "30s"
-    restart_limit = 3
+    grace_period = "15s"
+    restart_limit = 0
