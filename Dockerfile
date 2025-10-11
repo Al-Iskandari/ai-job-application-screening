@@ -15,7 +15,7 @@ RUN npm ci
 # Copy the full source code
 COPY . .
 
-# Build TypeScript into JavaScript
+# Build (TypeScript + alias fix)
 RUN npm run build
 
 # ============================
@@ -35,7 +35,6 @@ COPY --from=builder /usr/src/app/public ./public
 RUN npm ci --omit=dev
 
 # Set environment to production
-ENV PATH="/etc/secrets:${PATH}"
 ENV NODE_ENV=production
 ENV PORT=4000
 
